@@ -1,0 +1,22 @@
+# Core Dependencies
+langchain>=0.2.0
+langchain-core>=0.2.0
+langgraph>=0.1.0
+pydantic>=2.0.0
+
+# LLM Providers (install as needed)
+langchain-openai>=0.1.0      # For OpenAI and Azure OpenAI
+langchain-anthropic>=0.1.0   # For Anthropic Claude
+
+# HTTP Client
+httpx>=0.25.0
+
+# Configuration
+pyyaml>=6.0
+
+# Optional: Redis Backend
+# redis>=5.0.0
+
+# Optional: Development
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
