@@ -6,7 +6,6 @@ __pycache__/
 venv/
 env/
 
-claude-code-main/
 claude-code-main.zip
 
 .DS_Store
