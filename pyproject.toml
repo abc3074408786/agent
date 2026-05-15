@@ -7,7 +7,7 @@ name = "agent"
 version = "0.2.0"
 description = "Production-grade AI Agent framework based on LangGraph ReAct pattern"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "Agent Team" },
@@ -16,6 +16,7 @@ keywords = ["ai", "agent", "langchain", "langgraph", "llm"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -74,7 +75,7 @@ agent-server = "agent.api:run_server"
 packages = ["agent"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
@@ -82,7 +83,7 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.10"
 strict = false
 warn_return_any = true
 warn_unused_configs = true
