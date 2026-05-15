@@ -17,9 +17,9 @@ from collections import deque
 from threading import Lock
 from datetime import datetime, timezone
 
-from agent.observability import get_logger
+import logging; logger = logging.getLogger(__name__)
 
-logger = get_logger("priority_queue")
+
 
 T = TypeVar("T")
 

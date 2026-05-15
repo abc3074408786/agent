@@ -17,10 +17,9 @@ from enum import Enum
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
-from agent.observability import get_logger, get_tracer
+import logging; logger = logging.getLogger(__name__)
 
-logger = get_logger("streaming_executor")
-tracer = get_tracer("streaming_executor")
+
 
 
 class ToolExecutionState(str, Enum):

@@ -27,9 +27,9 @@ from collections import OrderedDict
 from functools import wraps
 from threading import Lock
 
-from agent.observability import get_logger
+import logging; logger = logging.getLogger(__name__)
 
-logger = get_logger("cache")
+
 
 T = TypeVar("T")
 K = TypeVar("K")

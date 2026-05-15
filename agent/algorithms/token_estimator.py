@@ -22,9 +22,9 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from agent.observability import get_logger
+import logging; logger = logging.getLogger(__name__)
 
-logger = get_logger("token_estimator")
+
 
 
 # ============ 文件类型 bytes_per_token 映射 ============

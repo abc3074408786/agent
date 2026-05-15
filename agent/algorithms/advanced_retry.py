@@ -17,15 +17,19 @@ from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
-from agent.observability import get_logger, get_tracer
-from agent.retry import (
-    ErrorCategory,
-    categorize_error,
-    RetryConfig,
-)
+import logging; logger = logging.getLogger(__name__)
+# Inline retry imports to avoid circular deps
+class ErrorCategory:
+    AUTHENTICATION = "authentication"
+    INVALID_REQUEST = "invalid_request"
 
-logger = get_logger("advanced_retry")
-tracer = get_tracer("advanced_retry")
+def categorize_error(e):
+    s = str(e).lower()
+    if "401" in s or "403" in s or "unauthorized" in s: return ErrorCategory.AUTHENTICATION
+    if "400" in s or "invalid" in s: return ErrorCategory.INVALID_REQUEST
+    return "unknown"
+
+
 
 T = TypeVar("T")
 
@@ -220,7 +224,7 @@ class AdvancedRetryExecutor:
             fallback_model=fallback_model,
         )
 
-    @tracer.trace("advanced_retry.execute")
+    
     async def execute(
         self,
         operation: Callable[..., Any],

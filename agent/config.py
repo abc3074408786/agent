@@ -217,3 +217,22 @@ class ConfigManager:
     def reload(self) -> None:
         """重新从文件加载配置。"""
         self._load()
+
+
+
+# ============ 便捷函数 ============
+
+_default_config: "ConfigManager | None" = None
+
+
+def get_config(config_path: str = "config.yaml") -> "ConfigManager | None":
+    """获取或创建默认配置管理器"""
+    global _default_config
+    from pathlib import Path
+    
+    path = Path(config_path)
+    if path.exists():
+        if _default_config is None:
+            _default_config = ConfigManager(config_path)
+        return _default_config
+    return None
