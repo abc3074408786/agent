@@ -70,9 +70,10 @@ dev = [
 
 [project.scripts]
 agent-server = "agent.api:run_server"
+agent-cli = "cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent"]
+packages = ["agent", "cli.py"]
 
 [tool.ruff]
 target-version = "py310"
