@@ -1,0 +1,127 @@
+# Agent Framework Configuration
+# Production-ready configuration file
+
+# ============ Server ============
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  # API Keys (use environment variable in production)
+  api_keys:
+    - "${API_KEY}"
+
+# ============ LLM Providers ============
+llm:
+  default: "openai"
+  providers:
+    - name: "openai"
+      provider: "openai"
+      model: "gpt-4"
+      api_key: "${OPENAI_API_KEY}"
+      temperature: 0.7
+      max_tokens: 4096
+      timeout: 60
+      max_retries: 3
+      streaming: true
+
+    - name: "openai-fast"
+      provider: "openai"
+      model: "gpt-4o-mini"
+      api_key: "${OPENAI_API_KEY}"
+      temperature: 0.5
+      max_tokens: 2048
+      timeout: 30
+
+    - name: "anthropic"
+      provider: "anthropic"
+      model: "claude-sonnet-4-20250514"
+      api_key: "${ANTHROPIC_API_KEY}"
+      temperature: 0.7
+      max_tokens: 4096
+      timeout: 60
+      streaming: true
+
+    # Fallback model (cheaper, faster)
+    - name: "fallback"
+      provider: "openai"
+      model: "gpt-4o-mini"
+      api_key: "${OPENAI_API_KEY}"
+      temperature: 0.3
+      max_tokens: 2048
+      timeout: 30
+
+# ============ Memory ============
+memory:
+  backend: "redis"  # "memory" or "redis"
+  redis:
+    url: "${REDIS_URL:-redis://localhost:6379/0}"
+    prefix: "agent:memory:"
+    ttl: 86400  # 24 hours
+
+# ============ Permissions ============
+permissions:
+  mode: "default"  # default, auto, strict, bypass
+  rules:
+    - tool_pattern: "calculator"
+      decision: "allow"
+    - tool_pattern: "get_current_datetime"
+      decision: "allow"
+    - tool_pattern: "http_request"
+      decision: "ask"
+    - tool_pattern: "bash_*"
+      decision: "ask"
+
+# ============ Context Management ============
+context:
+  max_tokens: 128000
+  target_tokens: 80000
+  warning_threshold: 0.8
+  compact_threshold: 0.9
+  strategy: "hybrid"  # summarize, sliding_window, hybrid, trim_tools
+  keep_recent_messages: 10
+
+# ============ Coordinator ============
+coordinator:
+  max_concurrent_workers: 5
+  worker_timeout: 300
+  enable_task_decomposition: true
+
+# ============ Retry & Resilience ============
+retry:
+  max_retries: 3
+  initial_delay: 1.0
+  max_delay: 60.0
+  exponential_base: 2.0
+  jitter: true
+
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout: 30.0
+  success_threshold: 3
+
+# ============ Middleware ============
+middleware:
+  rate_limit:
+    max_requests: 60
+    window_seconds: 60
+    by: "user"
+  
+  input_validation:
+    max_message_length: 100000
+    max_messages: 200
+
+# ============ Observability ============
+observability:
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  json_logs: true
+  service_name: "agent"
+  # OpenTelemetry (optional)
+  # otel_endpoint: "http://localhost:4317"
+  # otel_service_name: "agent"
+
+# ============ Streaming ============
+streaming:
+  enable_rate_limit: true
+  rate_limit_ms: 50
+  ping_interval: 15
+  enable_token_counting: true

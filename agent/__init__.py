@@ -1,14 +1,26 @@
 """
-Agent - 基于 LangGraph 的 ReAct 智能代理框架
+Agent - 生产级 AI Agent 框架
 
-模块:
-- config: 配置管理
-- schemas: 数据模型
-- observability: 日志和追踪
-- llm: 多提供商 LLM 支持
-- memory: 会话和消息管理
-- tools: 工具注册和内置工具
-- graph: ReAct 图构建和执行
+基于 LangGraph ReAct 模式，提供完整的生产级特性:
+
+核心模块:
+- config: 配置管理 (YAML + 环境变量)
+- schemas: 数据模型 (Pydantic v2)
+- observability: 结构化日志 + 请求追踪
+- llm: 多提供商 LLM 支持 (OpenAI/Anthropic/Azure)
+- memory: 会话管理 (InMemory/Redis)
+- tools: 工具注册 + 内置工具集
+- graph: ReAct 图构建 + Agent 执行器
+
+生产级模块:
+- permissions: 工具权限控制系统
+- streaming: 流式处理引擎 (SSE/AsyncGenerator)
+- coordinator: 多Agent协调器 (Coordinator/Worker模式)
+- context: 上下文压缩 (Token管理/自动Compact)
+- middleware: 中间件管道 (认证/限流/日志/错误处理)
+- retry: 错误恢复 (指数退避/断路器/降级)
+- hooks: 生命周期钩子
+- api: FastAPI 服务层 (REST/SSE/WebSocket)
 
 快速开始:
     >>> from agent import create_react_agent, create_chat_model, register_builtin_tools, get_tools
@@ -30,7 +42,7 @@ Agent - 基于 LangGraph 的 ReAct 智能代理框架
     >>> print(result["messages"][-1].content)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Agent Team"
 
 # ============ 配置 ============
@@ -108,6 +120,86 @@ from agent.graph import (
     ReActGraphBuilder,
     AgentExecutor,
     create_react_agent,
+)
+
+# ============ 权限系统 ============
+from agent.permissions import (
+    PermissionMode,
+    PermissionDecision,
+    ToolRiskLevel,
+    PermissionRule,
+    PermissionRequest,
+    PermissionResult,
+    PermissionEngine,
+    create_permission_engine,
+)
+
+# ============ 流式处理 ============
+from agent.streaming import (
+    StreamEventType,
+    StreamEvent,
+    TokenUsage,
+    StreamEngine,
+    create_stream_engine,
+    generate_sse_stream,
+)
+
+# ============ 多Agent协调 ============
+from agent.coordinator import (
+    TaskStatus,
+    WorkerRole,
+    TaskResult,
+    WorkerTask,
+    Worker,
+    Coordinator,
+    TaskDecomposer,
+    create_coordinator,
+    run_parallel_tasks,
+)
+
+# ============ 上下文管理 ============
+from agent.context import (
+    TokenEstimator,
+    CompactionConfig,
+    CompactionStrategy,
+    CompactionResult,
+    ContextCompactor,
+    ContextManager,
+    create_context_manager,
+)
+
+# ============ 中间件 ============
+from agent.middleware import (
+    Middleware,
+    MiddlewareContext,
+    MiddlewarePipeline,
+    TracingMiddleware,
+    AuthenticationMiddleware,
+    RateLimitMiddleware,
+    LoggingMiddleware,
+    ErrorHandlingMiddleware,
+    create_default_pipeline,
+)
+
+# ============ 重试/恢复 ============
+from agent.retry import (
+    RetryConfig,
+    RetryExecutor,
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    with_retry,
+    with_circuit_breaker,
+    with_timeout,
+    categorize_error,
+    ErrorCategory,
+)
+
+# ============ 钩子 ============
+from agent.hooks import (
+    HookEvent,
+    HookContext,
+    HookManager,
+    hook_manager,
 )
 
 
