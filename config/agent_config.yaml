@@ -1,0 +1,64 @@
+# Agent 配置文件
+# LLM 提供商通过 OpenAI 兼容 API 格式统一接入
+
+llm_providers:
+  - name: vllm-local
+    endpoint_url: "http://localhost:8000/v1"
+    api_key: "not-needed"
+    default_model: "Qwen/Qwen2.5-7B-Instruct"
+  - name: openai
+    endpoint_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    default_model: "gpt-4o"
+  - name: anthropic
+    endpoint_url: "https://api.anthropic.com/v1"
+    api_key: "${ANTHROPIC_API_KEY}"
+    default_model: "claude-sonnet-4-20250514"
+  - name: google
+    endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    api_key: "${GOOGLE_API_KEY}"
+    default_model: "gemini-2.0-flash"
+  - name: minimax
+    endpoint_url: "https://api.minimax.chat/v1"
+    api_key: "${MINIMAX_API_KEY}"
+    default_model: "MiniMax-Text-01"
+  - name: moonshot
+    endpoint_url: "https://api.moonshot.cn/v1"
+    api_key: "${MOONSHOT_API_KEY}"
+    default_model: "moonshot-v1-8k"
+  - name: siliconflow
+    endpoint_url: "https://api.siliconflow.cn/v1"
+    api_key: "${SILICONFLOW_API_KEY}"
+    default_model: "Qwen/Qwen2.5-72B-Instruct"
+  - name: openrouter
+    endpoint_url: "https://openrouter.ai/api/v1"
+    api_key: "${OPENROUTER_API_KEY}"
+    default_model: "openai/gpt-4o"
+  - name: bytedance-ark
+    endpoint_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "${ARK_API_KEY}"
+    default_model: "doubao-pro-32k"
+  - name: ollama
+    endpoint_url: "http://localhost:11434/v1"
+    api_key: "ollama"
+    default_model: "qwen2.5:7b"
+
+default_provider: vllm-local
+
+agent:
+  max_iterations: 5
+  tool_timeout_seconds: 30
+  system_prompt: |
+    你是一个智能助手。你可以使用 RAG 工具来检索知识库中的信息。
+    如果用户的问题需要特定领域知识，请使用 rag_search 工具进行检索。
+    如果是通用问题或闲聊，直接回答即可。
+
+memory:
+  max_messages: 50
+  compression_threshold: 40
+  compression_strategy: "summarize"  # summarize | truncate
+
+observability:
+  log_level: "INFO"
+  log_format: "json"
+  trace_enabled: true

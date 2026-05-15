@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+claude-code-main/
+claude-code-main.zip
+
+.DS_Store
+Thumbs.db
