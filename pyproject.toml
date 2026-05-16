@@ -72,6 +72,8 @@ dev = [
 agent-server = "agent.api:run_server"
 agent-cli = "cli:main"
 agent-telegram = "agent.integrations.telegram_bot:main"
+agent-mcp = "agent.mcp_server:main"
+agent-monitor = "agent.monitor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "cli.py"]
