@@ -1,560 +1,519 @@
 """
-Proactive Monitor - 主动监控守护进程
+主动监控 Agent - 定时扫描项目发现问题
 
-在后台持续运行，监控项目变化并主动发现问题：
-- 文件变化检测
-- 测试状态监控
-- 依赖安全检查
-- 代码质量巡检
+后台运行的监控 Agent，定期扫描项目代码，主动发现语法错误、
+安全隐患、代码质量问题等，并通过回调通知机制报告给用户。
 
-启动: python -m agent.monitor --watch /path/to/project
+用法:
+    monitor = ProjectMonitor("/path/to/project", check_interval=300)
+    monitor.on_issue_found(my_callback)
+    await monitor.start()
 """
 
-import os
-import sys
-import time
-import hashlib
+import ast
 import asyncio
-import argparse
 import logging
+import os
+import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Callable, List, Optional, Set
 
-# 日志输出到 stderr
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    stream=sys.stderr,
-)
 logger = logging.getLogger(__name__)
 
+# 需要跳过的目录
+SKIP_DIRS: Set[str] = {"__pycache__", ".venv", "node_modules", ".git", "venv", ".tox",
+                        ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+                        ".eggs"}
 
-# ─── Alert 数据类 ──────────────────────────────────────────────────────────────
 
 @dataclass
-class Alert:
-    """监控告警"""
-    level: str  # info / warning / critical
-    source: str  # file_change / test / quality / git
-    message: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+class Issue:
+    """监控发现的问题"""
+    severity: str  # "critical" | "warning" | "info"
+    category: str  # "syntax" | "test" | "security" | "quality" | "todo"
+    file: str
+    line: Optional[int] = None
+    message: str = ""
+    suggestion: Optional[str] = None
+    confidence: float = 1.0  # 置信度 0.0 ~ 1.0
 
     def format(self) -> str:
-        """格式化告警为可读字符串"""
-        icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(self.level, "•")
-        return f"[{self.timestamp}] {icon} [{self.source}] {self.message}"
+        """格式化为可读字符串"""
+        icon = {"critical": "🚨", "warning": "⚠️", "info": "ℹ️"}.get(self.severity, "•")
+        loc = f"{self.file}:{self.line}" if self.line else self.file
+        text = f"{icon} [{self.severity}/{self.category}] {loc} - {self.message}"
+        if self.suggestion:
+            text += f"\n   💡 建议: {self.suggestion}"
+        return text
 
 
-# ─── FileWatcher ───────────────────────────────────────────────────────────────
+class ProjectMonitor:
+    """主动监控 Agent - 定时扫描项目发现问题"""
 
-class FileWatcher:
-    """
-    文件变化监控器 (polling 方式)
-    
-    通过计算文件 hash 来检测变化，不依赖 watchdog 等第三方库。
-    """
-
-    # 默认忽略的目录
-    IGNORE_DIRS: Set[str] = {
-        ".git", "__pycache__", "node_modules", ".venv",
-        "venv", ".tox", ".mypy_cache", ".pytest_cache",
-        ".ruff_cache", "dist", "build", ".eggs", "*.egg-info",
-    }
-
-    # 默认忽略的文件扩展名
-    IGNORE_EXTENSIONS: Set[str] = {
-        ".pyc", ".pyo", ".so", ".o", ".a",
-        ".class", ".jar",
-    }
-
-    def __init__(self, watch_dir: str, on_change: Optional[Callable] = None):
-        self.watch_dir = os.path.abspath(watch_dir)
-        self.on_change = on_change
-        self._file_hashes: Dict[str, str] = {}
-        self._initialized = False
-
-    def _should_ignore(self, path: str) -> bool:
-        """判断路径是否应该被忽略"""
-        parts = Path(path).parts
-        for part in parts:
-            if part in self.IGNORE_DIRS:
-                return True
-            # 处理 *.egg-info 等通配符模式
-            for ignore in self.IGNORE_DIRS:
-                if "*" in ignore and part.endswith(ignore.replace("*", "")):
-                    return True
-        # 检查文件扩展名
-        _, ext = os.path.splitext(path)
-        if ext in self.IGNORE_EXTENSIONS:
-            return True
-        return False
-
-    def _compute_hash(self, filepath: str) -> Optional[str]:
-        """计算文件 MD5 hash"""
-        try:
-            hasher = hashlib.md5()
-            with open(filepath, "rb") as f:
-                # 读取前 64KB 来快速计算 hash
-                chunk = f.read(65536)
-                while chunk:
-                    hasher.update(chunk)
-                    chunk = f.read(65536)
-            return hasher.hexdigest()
-        except (OSError, IOError):
-            return None
-
-    def _scan_files(self) -> Dict[str, str]:
-        """扫描目录，返回 {filepath: hash} 映射"""
-        file_hashes = {}
-        for root, dirs, files in os.walk(self.watch_dir):
-            # 过滤忽略的目录 (in-place 修改)
-            dirs[:] = [d for d in dirs if not self._should_ignore(os.path.join(root, d))]
-
-            for filename in files:
-                filepath = os.path.join(root, filename)
-                rel_path = os.path.relpath(filepath, self.watch_dir)
-                if self._should_ignore(rel_path):
-                    continue
-                file_hash = self._compute_hash(filepath)
-                if file_hash:
-                    file_hashes[rel_path] = file_hash
-
-        return file_hashes
-
-    def check(self) -> Dict[str, List[str]]:
+    def __init__(self, project_path: str, check_interval: int = 300):
         """
-        检查文件变化
-        
-        Returns:
-            {"added": [...], "modified": [...], "deleted": [...]}
+        初始化监控 Agent。
+
+        Args:
+            project_path: 要监控的项目根目录路径
+            check_interval: 检查间隔（秒），默认 300 秒
         """
-        current_hashes = self._scan_files()
-        changes: Dict[str, List[str]] = {"added": [], "modified": [], "deleted": []}
-
-        if not self._initialized:
-            self._file_hashes = current_hashes
-            self._initialized = True
-            logger.info(f"FileWatcher initialized: tracking {len(current_hashes)} files")
-            return changes
-
-        # 新增和修改
-        for path, hash_val in current_hashes.items():
-            if path not in self._file_hashes:
-                changes["added"].append(path)
-            elif self._file_hashes[path] != hash_val:
-                changes["modified"].append(path)
-
-        # 删除
-        for path in self._file_hashes:
-            if path not in current_hashes:
-                changes["deleted"].append(path)
-
-        self._file_hashes = current_hashes
-
-        # 触发回调
-        has_changes = any(changes[k] for k in changes)
-        if has_changes and self.on_change:
-            self.on_change(changes)
-
-        return changes
-
-
-# ─── ProactiveMonitor ──────────────────────────────────────────────────────────
-
-class ProactiveMonitor:
-    """
-    主动监控守护进程
-    
-    在后台持续运行，定期检查项目状态并发出告警。
-    """
-
-    def __init__(
-        self,
-        project_dir: str,
-        check_interval: int = 60,
-        quiet: bool = False,
-        webhook_url: Optional[str] = None,
-    ):
-        self.project_dir = os.path.abspath(project_dir)
+        self.project_path = Path(os.path.abspath(project_path))
         self.check_interval = check_interval
-        self.quiet = quiet
-        self.webhook_url = webhook_url
         self._running = False
-        self._alerts: List[Alert] = []
-        self._file_watcher = FileWatcher(
-            self.project_dir,
-            on_change=self._on_file_change,
-        )
+        self._callbacks: List[Callable[[Issue], None]] = []
+        self._issues_history: List[Issue] = []
 
-        # 确保通知日志目录存在
-        self._log_dir = Path.home() / ".agent"
-        self._log_dir.mkdir(parents=True, exist_ok=True)
-        self._log_file = self._log_dir / "notifications.log"
+        # 安全模式检测的正则
+        self._security_patterns = [
+            # 硬编码密钥/密码
+            (re.compile(r'''(?:password|passwd|pwd|secret|api_key|apikey|token|access_key)\s*=\s*['"][^'"]{4,}['"]''', re.IGNORECASE),
+             "硬编码的密钥或密码", "使用环境变量或配置文件管理敏感信息"),
+            # SQL 注入风险
+            (re.compile(r'''(?:execute|cursor\.execute)\s*\(\s*[f"'].*?\{.*?\}''', re.IGNORECASE),
+             "可能存在 SQL 注入风险 (f-string 拼接 SQL)", "使用参数化查询"),
+            (re.compile(r'''(?:execute|cursor\.execute)\s*\(\s*.*?%\s*[\(]''', re.IGNORECASE),
+             "可能存在 SQL 注入风险 (% 格式化 SQL)", "使用参数化查询"),
+            # eval/exec
+            (re.compile(r'''\beval\s*\('''),
+             "使用了 eval()，可能存在代码注入风险", "避免使用 eval，考虑使用 ast.literal_eval 或其他安全替代"),
+            (re.compile(r'''\bexec\s*\('''),
+             "使用了 exec()，可能存在代码注入风险", "避免使用 exec，使用更安全的方式执行逻辑"),
+            # pickle 反序列化
+            (re.compile(r'''pickle\.loads?\s*\('''),
+             "使用 pickle 加载数据，可能存在反序列化漏洞", "对不可信数据避免使用 pickle"),
+        ]
 
-        # 质量阈值
-        self.max_file_size_kb = 500  # 文件大于 500KB 告警
-        self.max_function_lines = 100  # 函数超过 100 行告警
-        self.max_uncommitted_files = 20  # 未提交文件超过 20 个告警
-        self.max_todo_count = 50  # TODO 超过 50 个告警
+    def on_issue_found(self, callback: Callable[[Issue], None]):
+        """注册问题发现时的回调函数。
 
-    def _on_file_change(self, changes: Dict[str, List[str]]):
-        """文件变化回调"""
-        total = sum(len(v) for v in changes.values())
-        if total > 0:
-            details = {
-                "added": len(changes["added"]),
-                "modified": len(changes["modified"]),
-                "deleted": len(changes["deleted"]),
-            }
-            self._emit_alert(Alert(
-                level="info",
-                source="file_change",
-                message=f"Detected {total} file change(s)",
-                details=details,
-            ))
+        Args:
+            callback: 接收 Issue 对象的回调函数
+        """
+        self._callbacks.append(callback)
 
-    def _emit_alert(self, alert: Alert):
-        """发出告警"""
-        self._alerts.append(alert)
+    def _notify(self, issue: Issue):
+        """通知所有注册的回调"""
+        self._issues_history.append(issue)
+        for cb in self._callbacks:
+            try:
+                cb(issue)
+            except Exception as e:
+                logger.error(f"回调执行失败: {e}")
 
-        # Console 输出
-        if not self.quiet:
-            print(alert.format(), file=sys.stderr)
+    def _iter_py_files(self) -> List[Path]:
+        """遍历项目中的所有 .py 文件（跳过忽略目录）"""
+        py_files = []
+        for root, dirs, files in os.walk(self.project_path):
+            # 原地修改 dirs 以跳过忽略目录
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for filename in files:
+                if filename.endswith(".py"):
+                    py_files.append(Path(root) / filename)
+        return py_files
 
-        # 写入日志文件
+    def _rel_path(self, filepath: Path) -> str:
+        """获取相对于项目根目录的路径"""
         try:
-            with open(self._log_file, "a", encoding="utf-8") as f:
-                f.write(alert.format() + "\n")
-        except IOError:
-            pass
+            return str(filepath.relative_to(self.project_path))
+        except ValueError:
+            return str(filepath)
 
-    async def check_file_changes(self) -> List[Alert]:
-        """检测文件变化"""
-        alerts = []
-        changes = self._file_watcher.check()
+    # ─── 检查方法 ──────────────────────────────────────────────────────────────
 
-        added = changes.get("added", [])
-        modified = changes.get("modified", [])
-        deleted = changes.get("deleted", [])
-        total = len(added) + len(modified) + len(deleted)
+    async def check_syntax_errors(self) -> List[Issue]:
+        """扫描所有 .py 文件的语法错误 (使用 ast.parse)"""
+        issues = []
+        for filepath in self._iter_py_files():
+            try:
+                source = filepath.read_text(encoding="utf-8", errors="replace")
+                ast.parse(source, filename=str(filepath))
+            except SyntaxError as e:
+                issue = Issue(
+                    severity="critical",
+                    category="syntax",
+                    file=self._rel_path(filepath),
+                    line=e.lineno,
+                    message=f"语法错误: {e.msg}",
+                    suggestion="修复语法错误以确保代码可以正常运行",
+                    confidence=1.0,
+                )
+                issues.append(issue)
+                self._notify(issue)
+            except Exception as e:
+                logger.debug(f"解析文件失败 {filepath}: {e}")
+        return issues
 
-        if total > 0:
-            alert = Alert(
-                level="info",
-                source="file_change",
-                message=f"{total} files changed: +{len(added)} ~{len(modified)} -{len(deleted)}",
-                details={"added": added[:10], "modified": modified[:10], "deleted": deleted[:10]},
-            )
-            alerts.append(alert)
-            self._emit_alert(alert)
+    async def check_import_errors(self) -> List[Issue]:
+        """检测无效导入（通过静态分析 AST 检查导入语句）"""
+        issues = []
+        stdlib_modules = set(sys.stdlib_module_names) if hasattr(sys, 'stdlib_module_names') else set()
 
-        return alerts
+        for filepath in self._iter_py_files():
+            try:
+                source = filepath.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(source, filename=str(filepath))
+            except (SyntaxError, Exception):
+                continue
 
-    async def check_test_health(self) -> List[Alert]:
-        """定期跑测试，检查测试健康状态"""
-        alerts = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        module_name = alias.name.split(".")[0]
+                        if not self._can_resolve_module(module_name, filepath, stdlib_modules):
+                            issue = Issue(
+                                severity="warning",
+                                category="syntax",
+                                file=self._rel_path(filepath),
+                                line=node.lineno,
+                                message=f"可能无效的导入: {alias.name}",
+                                suggestion=f"确认模块 '{alias.name}' 已安装或路径正确",
+                                confidence=0.7,
+                            )
+                            issues.append(issue)
+                            self._notify(issue)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        module_name = node.module.split(".")[0]
+                        if not self._can_resolve_module(module_name, filepath, stdlib_modules):
+                            issue = Issue(
+                                severity="warning",
+                                category="syntax",
+                                file=self._rel_path(filepath),
+                                line=node.lineno,
+                                message=f"可能无效的导入: from {node.module}",
+                                suggestion=f"确认模块 '{node.module}' 已安装或路径正确",
+                                confidence=0.7,
+                            )
+                            issues.append(issue)
+                            self._notify(issue)
+        return issues
+
+    def _can_resolve_module(self, module_name: str, source_file: Path, stdlib_modules: Set[str]) -> bool:
+        """检查模块是否可以解析（简单启发式检查）"""
+        # 标准库模块
+        if stdlib_modules and module_name in stdlib_modules:
+            return True
+        # 相对路径的本地模块 - 检查项目里是否存在
+        local_path = self.project_path / module_name
+        if local_path.exists() or local_path.with_suffix(".py").exists():
+            return True
+        # 常见第三方包（简单白名单）
+        common_packages = {
+            "pytest", "numpy", "pandas", "requests", "flask", "django",
+            "fastapi", "pydantic", "sqlalchemy", "celery", "redis",
+            "boto3", "aiohttp", "httpx", "uvicorn", "gunicorn",
+            "yaml", "toml", "dotenv", "click", "typer", "rich",
+            "openai", "langchain", "transformers", "torch", "tensorflow",
+            "setuptools", "pip", "pkg_resources", "importlib",
+        }
+        if module_name in common_packages:
+            return True
+        # 尝试 importlib 检查（不实际导入）
+        try:
+            import importlib.util
+            spec = importlib.util.find_spec(module_name)
+            return spec is not None
+        except (ModuleNotFoundError, ValueError):
+            return False
+
+    async def check_test_health(self) -> List[Issue]:
+        """运行测试，检查是否有失败的测试"""
+        issues = []
         try:
             result = subprocess.run(
-                ["python", "-m", "pytest", "--tb=no", "-q", "--no-header"],
+                [sys.executable, "-m", "pytest", "--tb=line", "-q", "--no-header", "-x"],
                 capture_output=True,
                 text=True,
-                cwd=self.project_dir,
+                cwd=str(self.project_path),
                 timeout=120,
             )
 
             if result.returncode != 0:
-                # 解析失败测试数量
+                # 解析 pytest 输出找到失败的测试
                 output = result.stdout + result.stderr
-                alert = Alert(
-                    level="warning",
-                    source="test",
-                    message=f"Tests failing (exit code {result.returncode})",
-                    details={"output": output[-500:]},  # 只保留最后 500 字符
+                failed_lines = [l for l in output.split("\n") if "FAILED" in l or "ERROR" in l]
+
+                issue = Issue(
+                    severity="warning",
+                    category="test",
+                    file="tests/",
+                    line=None,
+                    message=f"测试失败 (exit code {result.returncode}): {len(failed_lines)} 个失败",
+                    suggestion="运行 pytest -v 查看详细失败信息并修复测试",
+                    confidence=1.0,
                 )
-                alerts.append(alert)
-                self._emit_alert(alert)
-            else:
-                logger.debug("All tests passing")
+                issues.append(issue)
+                self._notify(issue)
+
+                # 为每个失败的测试创建单独的 issue
+                for line in failed_lines[:10]:  # 最多报告 10 个
+                    issue = Issue(
+                        severity="warning",
+                        category="test",
+                        file=line.strip()[:200],
+                        line=None,
+                        message="测试失败",
+                        confidence=1.0,
+                    )
+                    issues.append(issue)
+                    self._notify(issue)
 
         except subprocess.TimeoutExpired:
-            alert = Alert(
-                level="warning",
-                source="test",
-                message="Test execution timed out (>120s)",
+            issue = Issue(
+                severity="warning",
+                category="test",
+                file="tests/",
+                line=None,
+                message="测试执行超时 (>120秒)",
+                suggestion="检查是否有死循环或过慢的测试",
+                confidence=1.0,
             )
-            alerts.append(alert)
-            self._emit_alert(alert)
+            issues.append(issue)
+            self._notify(issue)
         except FileNotFoundError:
-            logger.debug("pytest not available, skipping test health check")
+            logger.debug("pytest 不可用，跳过测试健康检查")
 
-        return alerts
+        return issues
 
-    async def check_code_quality(self) -> List[Alert]:
-        """检测代码质量问题"""
-        alerts = []
+    async def check_large_functions(self) -> List[Issue]:
+        """找出超过 50 行的函数，建议拆分"""
+        issues = []
+        max_lines = 50
 
-        large_files = []
-        long_functions = []
-        todo_count = 0
+        for filepath in self._iter_py_files():
+            try:
+                source = filepath.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(source, filename=str(filepath))
+            except (SyntaxError, Exception):
+                continue
 
-        for root, dirs, files in os.walk(self.project_dir):
-            # 过滤
-            dirs[:] = [d for d in dirs if d not in FileWatcher.IGNORE_DIRS]
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    # 计算函数体行数
+                    if node.body:
+                        start_line = node.lineno
+                        end_line = max(
+                            getattr(n, 'end_lineno', getattr(n, 'lineno', start_line))
+                            for n in ast.walk(node)
+                            if hasattr(n, 'lineno')
+                        )
+                        func_lines = end_line - start_line + 1
 
-            for filename in files:
-                if not filename.endswith(".py"):
-                    continue
+                        if func_lines > max_lines:
+                            issue = Issue(
+                                severity="info",
+                                category="quality",
+                                file=self._rel_path(filepath),
+                                line=node.lineno,
+                                message=f"函数 '{node.name}' 有 {func_lines} 行 (超过 {max_lines} 行)",
+                                suggestion=f"考虑将函数 '{node.name}' 拆分为更小的子函数以提高可读性",
+                                confidence=0.9,
+                            )
+                            issues.append(issue)
+                            self._notify(issue)
 
-                filepath = os.path.join(root, filename)
-                rel_path = os.path.relpath(filepath, self.project_dir)
+        return issues
 
-                # 检查文件大小
-                try:
-                    size_kb = os.path.getsize(filepath) / 1024
-                    if size_kb > self.max_file_size_kb:
-                        large_files.append((rel_path, int(size_kb)))
-                except OSError:
-                    continue
+    async def check_todo_fixme(self) -> List[Issue]:
+        """扫描代码中的 TODO/FIXME 注释"""
+        issues = []
+        pattern = re.compile(r'#\s*(TODO|FIXME|HACK|XXX|BUG)\b[:\s]*(.*)', re.IGNORECASE)
 
-                # 检查长函数和 TODO
-                try:
-                    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                        lines = f.readlines()
-                except IOError:
-                    continue
+        for filepath in self._iter_py_files():
+            try:
+                lines = filepath.read_text(encoding="utf-8", errors="replace").split("\n")
+            except Exception:
+                continue
 
-                func_start = None
-                func_name = ""
-                for i, line in enumerate(lines):
-                    stripped = line.strip()
+            for i, line in enumerate(lines, start=1):
+                match = pattern.search(line)
+                if match:
+                    tag = match.group(1).upper()
+                    comment = match.group(2).strip()
+                    severity = "warning" if tag in ("FIXME", "BUG") else "info"
 
-                    # 统计 TODO
-                    if "TODO" in line or "FIXME" in line or "HACK" in line:
-                        todo_count += 1
-
-                    # 检测函数定义
-                    if stripped.startswith("def ") or stripped.startswith("async def "):
-                        if func_start is not None:
-                            length = i - func_start
-                            if length > self.max_function_lines:
-                                long_functions.append((rel_path, func_name, length))
-                        func_name = stripped.split("(")[0].replace("def ", "").replace("async ", "")
-                        func_start = i
-
-                # 最后一个函数
-                if func_start is not None:
-                    length = len(lines) - func_start
-                    if length > self.max_function_lines:
-                        long_functions.append((rel_path, func_name, length))
-
-        # 生成告警
-        if large_files:
-            alert = Alert(
-                level="warning",
-                source="quality",
-                message=f"Found {len(large_files)} large file(s) (>{self.max_file_size_kb}KB)",
-                details={"files": large_files[:10]},
-            )
-            alerts.append(alert)
-            self._emit_alert(alert)
-
-        if long_functions:
-            alert = Alert(
-                level="info",
-                source="quality",
-                message=f"Found {len(long_functions)} long function(s) (>{self.max_function_lines} lines)",
-                details={"functions": long_functions[:10]},
-            )
-            alerts.append(alert)
-            self._emit_alert(alert)
-
-        if todo_count > self.max_todo_count:
-            alert = Alert(
-                level="info",
-                source="quality",
-                message=f"High TODO count: {todo_count} items",
-                details={"count": todo_count},
-            )
-            alerts.append(alert)
-            self._emit_alert(alert)
-
-        return alerts
-
-    async def check_git_status(self) -> List[Alert]:
-        """检查 git 状态"""
-        alerts = []
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                cwd=self.project_dir,
-                timeout=10,
-            )
-            if result.returncode != 0:
-                return alerts
-
-            changed_files = [l for l in result.stdout.strip().split("\n") if l.strip()]
-            count = len(changed_files)
-
-            if count > self.max_uncommitted_files:
-                alert = Alert(
-                    level="warning",
-                    source="git",
-                    message=f"Too many uncommitted changes: {count} files (threshold: {self.max_uncommitted_files})",
-                    details={"files": changed_files[:20]},
-                )
-                alerts.append(alert)
-                self._emit_alert(alert)
-
-            # 检查是否有未推送的 commit
-            result2 = subprocess.run(
-                ["git", "log", "--oneline", "@{u}..HEAD"],
-                capture_output=True,
-                text=True,
-                cwd=self.project_dir,
-                timeout=10,
-            )
-            if result2.returncode == 0 and result2.stdout.strip():
-                unpushed = result2.stdout.strip().split("\n")
-                if len(unpushed) > 5:
-                    alert = Alert(
-                        level="info",
-                        source="git",
-                        message=f"{len(unpushed)} unpushed commit(s)",
-                        details={"commits": unpushed[:10]},
+                    issue = Issue(
+                        severity=severity,
+                        category="todo",
+                        file=self._rel_path(filepath),
+                        line=i,
+                        message=f"{tag}: {comment}" if comment else f"发现 {tag} 标记",
+                        suggestion="处理或移除此标记",
+                        confidence=1.0,
                     )
-                    alerts.append(alert)
-                    self._emit_alert(alert)
+                    issues.append(issue)
+                    self._notify(issue)
 
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        return issues
 
-        return alerts
+    async def check_unused_imports(self) -> List[Issue]:
+        """检测未使用的导入"""
+        issues = []
+
+        for filepath in self._iter_py_files():
+            try:
+                source = filepath.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(source, filename=str(filepath))
+            except (SyntaxError, Exception):
+                continue
+
+            # 收集所有导入的名称
+            imported_names = {}  # name -> lineno
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        name = alias.asname if alias.asname else alias.name.split(".")[0]
+                        imported_names[name] = node.lineno
+                elif isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        name = alias.asname if alias.asname else alias.name
+                        imported_names[name] = node.lineno
+
+            # 收集所有使用的名称（排除导入节点本身）
+            used_names: Set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name):
+                    used_names.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    # 处理 module.attr 的情况
+                    if isinstance(node.value, ast.Name):
+                        used_names.add(node.value.id)
+
+            # 检查 __all__ 中列出的名称
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == "__all__":
+                            if isinstance(node.value, (ast.List, ast.Tuple)):
+                                for elt in node.value.elts:
+                                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                        used_names.add(elt.value)
+
+            # 找出未使用的导入
+            for name, lineno in imported_names.items():
+                if name.startswith("_"):
+                    continue  # 跳过下划线开头的（通常是有意为之）
+                if name not in used_names:
+                    issue = Issue(
+                        severity="info",
+                        category="quality",
+                        file=self._rel_path(filepath),
+                        line=lineno,
+                        message=f"未使用的导入: '{name}'",
+                        suggestion=f"移除未使用的导入 '{name}' 或添加 '# noqa' 注释",
+                        confidence=0.8,
+                    )
+                    issues.append(issue)
+                    self._notify(issue)
+
+        return issues
+
+    async def check_security_patterns(self) -> List[Issue]:
+        """检测硬编码密钥、SQL 注入等安全模式"""
+        issues = []
+
+        for filepath in self._iter_py_files():
+            try:
+                lines = filepath.read_text(encoding="utf-8", errors="replace").split("\n")
+            except Exception:
+                continue
+
+            for i, line in enumerate(lines, start=1):
+                # 跳过注释行
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+
+                for pattern, message, suggestion in self._security_patterns:
+                    if pattern.search(line):
+                        issue = Issue(
+                            severity="critical",
+                            category="security",
+                            file=self._rel_path(filepath),
+                            line=i,
+                            message=message,
+                            suggestion=suggestion,
+                            confidence=0.8,
+                        )
+                        issues.append(issue)
+                        self._notify(issue)
+                        break  # 每行只报告一个安全问题
+
+        return issues
+
+    # ─── 生命周期管理 ──────────────────────────────────────────────────────────
+
+    async def check_once(self) -> List[Issue]:
+        """执行一次完整检查，返回所有发现的问题"""
+        all_issues: List[Issue] = []
+
+        checks = [
+            ("syntax_errors", self.check_syntax_errors),
+            ("import_errors", self.check_import_errors),
+            ("large_functions", self.check_large_functions),
+            ("todo_fixme", self.check_todo_fixme),
+            ("unused_imports", self.check_unused_imports),
+            ("security_patterns", self.check_security_patterns),
+            ("test_health", self.check_test_health),
+        ]
+
+        for check_name, check_func in checks:
+            try:
+                logger.debug(f"执行检查: {check_name}")
+                issues = await check_func()
+                all_issues.extend(issues)
+            except Exception as e:
+                logger.error(f"检查 {check_name} 失败: {e}")
+
+        # 按 severity 排序: critical > warning > info
+        severity_order = {"critical": 0, "warning": 1, "info": 2}
+        all_issues.sort(key=lambda x: severity_order.get(x.severity, 99))
+
+        logger.info(f"检查完成: 发现 {len(all_issues)} 个问题 "
+                    f"(critical={sum(1 for i in all_issues if i.severity == 'critical')}, "
+                    f"warning={sum(1 for i in all_issues if i.severity == 'warning')}, "
+                    f"info={sum(1 for i in all_issues if i.severity == 'info')})")
+
+        return all_issues
 
     async def start(self):
-        """启动后台监控"""
+        """启动监控循环"""
         self._running = True
-        logger.info(f"ProactiveMonitor started: watching {self.project_dir}")
-        logger.info(f"Check interval: {self.check_interval}s")
+        logger.info(f"ProjectMonitor 启动: 监控 {self.project_path}, 间隔 {self.check_interval}s")
 
-        # 初始化 FileWatcher
-        self._file_watcher.check()
-
-        cycle = 0
         while self._running:
             try:
-                cycle += 1
-                logger.debug(f"Monitor cycle #{cycle}")
-
-                # 每个周期都检查文件变化
-                await self.check_file_changes()
-
-                # 每 5 个周期检查 git 状态
-                if cycle % 5 == 0:
-                    await self.check_git_status()
-
-                # 每 10 个周期检查代码质量
-                if cycle % 10 == 0:
-                    await self.check_code_quality()
-
-                # 每 30 个周期跑测试
-                if cycle % 30 == 0:
-                    await self.check_test_health()
-
+                await self.check_once()
                 await asyncio.sleep(self.check_interval)
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in monitor cycle: {e}")
+                logger.error(f"监控循环异常: {e}")
                 await asyncio.sleep(self.check_interval)
 
-        logger.info("ProactiveMonitor stopped")
+        logger.info("ProjectMonitor 已停止")
 
-    def stop(self):
+    async def stop(self):
         """停止监控"""
         self._running = False
-        logger.info("Stopping monitor...")
+        logger.info("ProjectMonitor 正在停止...")
 
     @property
-    def alerts(self) -> List[Alert]:
-        """获取所有告警历史"""
-        return self._alerts.copy()
+    def issues(self) -> List[Issue]:
+        """获取历史发现的所有问题"""
+        return self._issues_history.copy()
 
-
-# ─── Entry Point ───────────────────────────────────────────────────────────────
-
-def main():
-    """Monitor 入口"""
-    parser = argparse.ArgumentParser(
-        description="Proactive Monitor - 主动监控守护进程",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python -m agent.monitor --watch .
-  python -m agent.monitor --watch /path/to/project --interval 30
-  python -m agent.monitor --watch . --quiet
-        """,
-    )
-    parser.add_argument(
-        "--watch", "-w",
-        default=".",
-        help="要监控的项目目录 (默认: 当前目录)",
-    )
-    parser.add_argument(
-        "--interval", "-i",
-        type=int,
-        default=60,
-        help="检查间隔秒数 (默认: 60)",
-    )
-    parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="静默模式 (不输出到 console)",
-    )
-
-    args = parser.parse_args()
-
-    # 验证目录
-    watch_dir = os.path.abspath(args.watch)
-    if not os.path.isdir(watch_dir):
-        print(f"Error: Directory not found: {watch_dir}", file=sys.stderr)
-        sys.exit(1)
-
-    monitor = ProactiveMonitor(
-        project_dir=watch_dir,
-        check_interval=args.interval,
-        quiet=args.quiet,
-    )
-
-    # 优雅退出
-    import signal
-
-    def signal_handler(sig, frame):
-        logger.info(f"Received signal {sig}, shutting down...")
-        monitor.stop()
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    print(f"🔍 Proactive Monitor started", file=sys.stderr)
-    print(f"   Watching: {watch_dir}", file=sys.stderr)
-    print(f"   Interval: {args.interval}s", file=sys.stderr)
-    print(f"   Log: ~/.agent/notifications.log", file=sys.stderr)
-    print(f"   Press Ctrl+C to stop\n", file=sys.stderr)
-
-    try:
-        asyncio.run(monitor.start())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("\n✅ Monitor stopped gracefully", file=sys.stderr)
-
-
-if __name__ == "__main__":
-    main()
+    def summary(self) -> str:
+        """获取问题摘要"""
+        total = len(self._issues_history)
+        critical = sum(1 for i in self._issues_history if i.severity == "critical")
+        warning = sum(1 for i in self._issues_history if i.severity == "warning")
+        info = sum(1 for i in self._issues_history if i.severity == "info")
+        return (f"监控摘要: {total} 个问题 "
+                f"(🚨 critical={critical}, ⚠️ warning={warning}, ℹ️ info={info})")
