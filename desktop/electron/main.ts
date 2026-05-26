@@ -1,12 +1,65 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { app, BrowserWindow, ipcMain, shell, safeStorage } from 'electron'
+import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import http from 'http'
 
 let mainWindow: BrowserWindow | null = null
 let agentProcess: ChildProcess | null = null
 
+// ============================================================
+// API Key 加密存储（使用 Electron safeStorage）
+// ============================================================
+
+const secretsFilePath = () => path.join(app.getPath('userData'), 'secrets.enc.json')
+
+function saveEncryptedSecrets(secrets: Record<string, string>): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    // 降级：明文存储（开发模式或不支持加密的系统）
+    fs.writeFileSync(secretsFilePath(), JSON.stringify(secrets), 'utf-8')
+    return
+  }
+
+  const encrypted: Record<string, string> = {}
+  for (const [key, value] of Object.entries(secrets)) {
+    if (value) {
+      const buffer = safeStorage.encryptString(value)
+      encrypted[key] = buffer.toString('base64')
+    }
+  }
+  fs.writeFileSync(secretsFilePath(), JSON.stringify(encrypted), 'utf-8')
+}
+
+function loadEncryptedSecrets(): Record<string, string> {
+  const filePath = secretsFilePath()
+  if (!fs.existsSync(filePath)) return {}
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+
+    if (!safeStorage.isEncryptionAvailable()) {
+      return raw
+    }
+
+    const decrypted: Record<string, string> = {}
+    for (const [key, value] of Object.entries(raw)) {
+      try {
+        const buffer = Buffer.from(value as string, 'base64')
+        decrypted[key] = safeStorage.decryptString(buffer)
+      } catch {
+        decrypted[key] = value as string // 降级：可能是未加密的旧数据
+      }
+    }
+    return decrypted
+  } catch {
+    return {}
+  }
+}
+
+// ============================================================
 // Python Agent 进程管理
+// ============================================================
+
 function findPythonPath(): string {
   // 优先使用捆绑的 Python
   const bundledPython = path.join(process.resourcesPath, 'python', 'python')
@@ -32,6 +85,11 @@ function getAgentPath(): string {
 }
 
 function startAgentProcess(port: number = 8765): void {
+  if (agentProcess) {
+    console.log('Agent process already running')
+    return
+  }
+
   const pythonPath = findPythonPath()
   const agentPath = getAgentPath()
 
@@ -53,35 +111,95 @@ function startAgentProcess(port: number = 8765): void {
   })
 
   agentProcess.stdout?.on('data', (data) => {
-    console.log(`[Agent] ${data.toString()}`)
-    mainWindow?.webContents.send('agent:log', data.toString())
+    const log = data.toString()
+    console.log(`[Agent] ${log}`)
+    mainWindow?.webContents.send('agent:log', log)
   })
 
   agentProcess.stderr?.on('data', (data) => {
-    console.error(`[Agent Error] ${data.toString()}`)
-    mainWindow?.webContents.send('agent:error', data.toString())
+    const log = data.toString()
+    // uvicorn 正常日志也走 stderr
+    console.log(`[Agent] ${log}`)
+    mainWindow?.webContents.send('agent:log', log)
   })
 
   agentProcess.on('close', (code) => {
     console.log(`Agent process exited with code ${code}`)
-    mainWindow?.webContents.send('agent:status', 'stopped')
+    mainWindow?.webContents.send('agent:status-change', 'stopped')
     agentProcess = null
   })
 
   agentProcess.on('error', (err) => {
     console.error('Failed to start Agent:', err)
-    mainWindow?.webContents.send('agent:status', 'error')
+    mainWindow?.webContents.send('agent:status-change', 'error')
+    agentProcess = null
   })
 }
 
+// P1 修复：跨平台停止进程
 function stopAgentProcess(): void {
-  if (agentProcess) {
+  if (!agentProcess) return
+
+  if (process.platform === 'win32') {
+    // Windows: 使用 taskkill 终止进程树
+    try {
+      if (agentProcess.pid) {
+        execSync(`taskkill /pid ${agentProcess.pid} /T /F`, { stdio: 'ignore' })
+      }
+    } catch {
+      // 进程可能已经退出
+      agentProcess.kill()
+    }
+  } else {
+    // macOS/Linux: 发送 SIGTERM，等 3 秒后 SIGKILL
     agentProcess.kill('SIGTERM')
-    agentProcess = null
+    const pid = agentProcess.pid
+    setTimeout(() => {
+      try {
+        if (pid) process.kill(pid, 0) // 检查进程是否存在
+        if (pid) process.kill(pid, 'SIGKILL')
+      } catch {
+        // 已退出
+      }
+    }, 3000)
   }
+
+  agentProcess = null
 }
 
+// P1 修复：轮询 /health 等待 Agent 启动完成
+function waitForAgentReady(port: number, timeoutMs: number = 30000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const startTime = Date.now()
+    const interval = setInterval(() => {
+      if (Date.now() - startTime > timeoutMs) {
+        clearInterval(interval)
+        resolve(false)
+        return
+      }
+
+      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
+        if (res.statusCode === 200) {
+          clearInterval(interval)
+          resolve(true)
+        }
+      })
+
+      req.on('error', () => {
+        // Agent 还没准备好，继续等待
+      })
+
+      req.setTimeout(1000, () => {
+        req.destroy()
+      })
+    }, 500)
+  })
+}
+
+// ============================================================
 // 窗口创建
+// ============================================================
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -117,10 +235,24 @@ function createWindow(): void {
   })
 }
 
+// ============================================================
 // IPC 处理
+// ============================================================
+
+// Agent 管理
 ipcMain.handle('agent:start', async (_event, port: number = 8765) => {
   startAgentProcess(port)
-  return { success: true, port }
+  mainWindow?.webContents.send('agent:status-change', 'starting')
+
+  // 等待 Agent 启动完成
+  const ready = await waitForAgentReady(port)
+  if (ready) {
+    mainWindow?.webContents.send('agent:status-change', 'running')
+    return { success: true, port }
+  } else {
+    mainWindow?.webContents.send('agent:status-change', 'error')
+    return { success: false, port, error: 'Agent 启动超时（30秒）' }
+  }
 })
 
 ipcMain.handle('agent:stop', async () => {
@@ -132,6 +264,25 @@ ipcMain.handle('agent:status', async () => {
   return { running: agentProcess !== null }
 })
 
+// 加密存储管理
+ipcMain.handle('secrets:save', async (_event, secrets: Record<string, string>) => {
+  try {
+    saveEncryptedSecrets(secrets)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('secrets:load', async () => {
+  try {
+    return { success: true, secrets: loadEncryptedSecrets() }
+  } catch (error) {
+    return { success: false, error: (error as Error).message, secrets: {} }
+  }
+})
+
+// 窗口控制
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize()
 })
@@ -152,12 +303,15 @@ ipcMain.handle('window:isMaximized', () => {
   return mainWindow?.isMaximized() ?? false
 })
 
-// 获取用户数据路径（存储配置等）
+// 获取用户数据路径
 ipcMain.handle('app:getDataPath', () => {
   return app.getPath('userData')
 })
 
+// ============================================================
 // 应用生命周期
+// ============================================================
+
 app.whenReady().then(() => {
   createWindow()
 

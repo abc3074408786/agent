@@ -3,7 +3,7 @@ import { useAppStore, Message } from '../store'
 /**
  * Agent API 服务层
  * 支持本地 Agent 和远程 Agent 两种模式
- * 支持 SSE 流式响应
+ * 支持 SSE 流式响应 + AbortController 中断
  */
 
 function getBaseUrl(): string {
@@ -45,13 +45,14 @@ export interface ChatRequest {
 
 export const agentService = {
   /**
-   * 发送聊天消息（流式）
+   * 发送聊天消息（流式，支持中断）
    */
   async chat(
     message: string,
     history: Message[],
     agentType?: string,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<string> {
     const settings = useAppStore.getState().settings
     const baseUrl = getBaseUrl()
@@ -86,7 +87,8 @@ export const agentService = {
     const response = await fetch(`${baseUrl}/chat/stream`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal // 支持 AbortController 中断
     })
 
     if (!response.ok) {
@@ -103,37 +105,50 @@ export const agentService = {
     const decoder = new TextDecoder()
     let fullContent = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    try {
+      while (true) {
+        // 检查是否被中断
+        if (signal?.aborted) {
+          reader.cancel()
+          throw new DOMException('Aborted', 'AbortError')
+        }
 
-      const text = decoder.decode(value, { stream: true })
-      const lines = text.split('\n')
+        const { done, value } = await reader.read()
+        if (done) break
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
+        const text = decoder.decode(value, { stream: true })
+        const lines = text.split('\n')
 
-          if (data === '[DONE]') {
-            break
-          }
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
 
-          try {
-            const parsed = JSON.parse(data)
-            const chunk = parsed.content || parsed.delta?.content || parsed.text || ''
-            if (chunk) {
-              fullContent += chunk
-              onChunk?.(chunk)
+            if (data === '[DONE]') {
+              return fullContent
             }
-          } catch {
-            // 如果不是 JSON，直接作为文本处理
-            if (data.trim()) {
-              fullContent += data
-              onChunk?.(data)
+
+            try {
+              const parsed = JSON.parse(data)
+              const chunk = parsed.content || parsed.delta?.content || parsed.text || ''
+              if (chunk) {
+                fullContent += chunk
+                onChunk?.(chunk)
+              }
+            } catch {
+              // 如果不是 JSON，直接作为文本处理
+              if (data.trim()) {
+                fullContent += data
+                onChunk?.(data)
+              }
             }
           }
         }
       }
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        throw error // 向上抛出中断错误
+      }
+      throw error
     }
 
     return fullContent

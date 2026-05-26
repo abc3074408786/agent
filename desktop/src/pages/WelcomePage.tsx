@@ -71,7 +71,7 @@ const assistants = [
 
 export default function WelcomePage() {
   const navigate = useNavigate()
-  const { createSession } = useAppStore()
+  const { createSession, setPendingSessionId } = useAppStore()
 
   const handleSelectAssistant = (agentId: string) => {
     const sessionId = createSession(agentId)
@@ -80,13 +80,15 @@ export default function WelcomePage() {
 
   const handleSendMessage = (message: string) => {
     const sessionId = createSession()
-    // 稍后在 ChatPage 中处理发送
+    // 添加用户消息
     useAppStore.getState().addMessage(sessionId, {
       id: crypto.randomUUID(),
       role: 'user',
       content: message,
       timestamp: Date.now()
     })
+    // 标记为待处理，ChatPage 加载后自动触发 AI 回复
+    setPendingSessionId(sessionId)
     navigate(`/chat/${sessionId}`)
   }
 

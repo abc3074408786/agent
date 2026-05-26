@@ -13,9 +13,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onError: (callback: (error: string) => void) => {
       ipcRenderer.on('agent:error', (_event, error) => callback(error))
     },
-    onStatus: (callback: (status: string) => void) => {
-      ipcRenderer.on('agent:status', (_event, status) => callback(status))
+    onStatusChange: (callback: (status: string) => void) => {
+      ipcRenderer.on('agent:status-change', (_event, status) => callback(status))
     }
+  },
+
+  // 加密存储（API Key 等敏感信息）
+  secrets: {
+    save: (secrets: Record<string, string>) => ipcRenderer.invoke('secrets:save', secrets),
+    load: () => ipcRenderer.invoke('secrets:load')
   },
 
   // 窗口控制
