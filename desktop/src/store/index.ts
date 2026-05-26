@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 // 消息类型
 export interface Message {
@@ -59,16 +60,25 @@ interface AppState {
   currentSessionId: string | null
   // 设置
   settings: Settings
-  // Agent 状态
+  // Agent 状态（不持久化）
   agentRunning: boolean
+  // 加载/生成状态（不持久化）
+  isGenerating: boolean
+  abortController: AbortController | null
+  // 待处理消息标记（从 WelcomePage 跳转时用）
+  pendingSessionId: string | null
   // 操作
   createSession: (agentType?: string) => string
   deleteSession: (id: string) => void
   setCurrentSession: (id: string) => void
   addMessage: (sessionId: string, message: Message) => void
   updateLastMessage: (sessionId: string, content: string) => void
+  appendToLastMessage: (sessionId: string, chunk: string) => void
   updateSettings: (settings: Partial<Settings>) => void
   setAgentRunning: (running: boolean) => void
+  setIsGenerating: (generating: boolean) => void
+  setAbortController: (controller: AbortController | null) => void
+  setPendingSessionId: (id: string | null) => void
 }
 
 const defaultSettings: Settings = {
@@ -86,82 +96,129 @@ const defaultSettings: Settings = {
   theme: 'light'
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  sessions: [],
-  currentSessionId: null,
-  settings: defaultSettings,
-  agentRunning: false,
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      sessions: [],
+      currentSessionId: null,
+      settings: defaultSettings,
+      agentRunning: false,
+      isGenerating: false,
+      abortController: null,
+      pendingSessionId: null,
 
-  createSession: (agentType?: string) => {
-    const id = crypto.randomUUID()
-    const session: Session = {
-      id,
-      title: '新对话',
-      messages: [],
-      model: get().settings.defaultModel,
-      agentType,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-    set((state) => ({
-      sessions: [session, ...state.sessions],
-      currentSessionId: id
-    }))
-    return id
-  },
-
-  deleteSession: (id: string) => {
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-      currentSessionId: state.currentSessionId === id ? null : state.currentSessionId
-    }))
-  },
-
-  setCurrentSession: (id: string) => {
-    set({ currentSessionId: id })
-  },
-
-  addMessage: (sessionId: string, message: Message) => {
-    set((state) => ({
-      sessions: state.sessions.map((s) => {
-        if (s.id !== sessionId) return s
-        const updated = {
-          ...s,
-          messages: [...s.messages, message],
+      createSession: (agentType?: string) => {
+        const id = crypto.randomUUID()
+        const session: Session = {
+          id,
+          title: '新对话',
+          messages: [],
+          model: get().settings.defaultModel,
+          agentType,
+          createdAt: Date.now(),
           updatedAt: Date.now()
         }
-        // 用第一条用户消息作为标题
-        if (message.role === 'user' && s.messages.length === 0) {
-          updated.title = message.content.slice(0, 30)
-        }
-        return updated
+        set((state) => ({
+          sessions: [session, ...state.sessions],
+          currentSessionId: id
+        }))
+        return id
+      },
+
+      deleteSession: (id: string) => {
+        set((state) => ({
+          sessions: state.sessions.filter((s) => s.id !== id),
+          currentSessionId: state.currentSessionId === id ? null : state.currentSessionId
+        }))
+      },
+
+      setCurrentSession: (id: string) => {
+        set({ currentSessionId: id })
+      },
+
+      addMessage: (sessionId: string, message: Message) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const updated = {
+              ...s,
+              messages: [...s.messages, message],
+              updatedAt: Date.now()
+            }
+            // 用第一条用户消息作为标题
+            if (message.role === 'user' && s.messages.length === 0) {
+              updated.title = message.content.slice(0, 30)
+            }
+            return updated
+          })
+        }))
+      },
+
+      updateLastMessage: (sessionId: string, content: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const messages = [...s.messages]
+            if (messages.length > 0) {
+              messages[messages.length - 1] = {
+                ...messages[messages.length - 1],
+                content
+              }
+            }
+            return { ...s, messages, updatedAt: Date.now() }
+          })
+        }))
+      },
+
+      // 新增：追加模式更新（避免竞态）
+      appendToLastMessage: (sessionId: string, chunk: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const messages = [...s.messages]
+            if (messages.length > 0) {
+              const lastMsg = messages[messages.length - 1]
+              messages[messages.length - 1] = {
+                ...lastMsg,
+                content: lastMsg.content + chunk
+              }
+            }
+            return { ...s, messages, updatedAt: Date.now() }
+          })
+        }))
+      },
+
+      updateSettings: (partial: Partial<Settings>) => {
+        set((state) => ({
+          settings: { ...state.settings, ...partial }
+        }))
+      },
+
+      setAgentRunning: (running: boolean) => {
+        set({ agentRunning: running })
+      },
+
+      setIsGenerating: (generating: boolean) => {
+        set({ isGenerating: generating })
+      },
+
+      setAbortController: (controller: AbortController | null) => {
+        set({ abortController: controller })
+      },
+
+      setPendingSessionId: (id: string | null) => {
+        set({ pendingSessionId: id })
+      }
+    }),
+    {
+      name: 'agent-desktop-storage',
+      storage: createJSONStorage(() => localStorage),
+      // 只持久化这些字段，排除运行时状态
+      partialize: (state) => ({
+        sessions: state.sessions,
+        currentSessionId: state.currentSessionId,
+        settings: state.settings
       })
-    }))
-  },
-
-  updateLastMessage: (sessionId: string, content: string) => {
-    set((state) => ({
-      sessions: state.sessions.map((s) => {
-        if (s.id !== sessionId) return s
-        const messages = [...s.messages]
-        if (messages.length > 0) {
-          messages[messages.length - 1] = {
-            ...messages[messages.length - 1],
-            content
-          }
-        }
-        return { ...s, messages, updatedAt: Date.now() }
-      })
-    }))
-  },
-
-  updateSettings: (partial: Partial<Settings>) => {
-    set((state) => ({
-      settings: { ...state.settings, ...partial }
-    }))
-  },
-
-  setAgentRunning: (running: boolean) => {
-    set({ agentRunning: running })
-  }
-}))
+    }
+  )
+)
