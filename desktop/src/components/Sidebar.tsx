@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
   Search,
@@ -8,12 +8,15 @@ import {
   MessageSquare,
   Settings,
   Star,
-  Trash2
+  Trash2,
+  Layers,
+  Zap
 } from 'lucide-react'
 import { useAppStore, Session } from '../store'
 
 export default function Sidebar() {
   const navigate = useNavigate()
+  const location = useLocation()
   const {
     sessions,
     currentSessionId,
@@ -76,10 +79,30 @@ export default function Sidebar() {
           <span>搜索</span>
         </button>
 
-        {/* 定时任务 */}
-        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-sidebar-hover transition-colors">
-          <Clock size={16} />
-          <span>定时任务</span>
+        {/* 多 Agent 并行 */}
+        <button
+          onClick={() => navigate('/agents')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname === '/agents'
+              ? 'bg-sidebar-active text-gray-900 font-medium'
+              : 'text-gray-700 hover:bg-sidebar-hover'
+          }`}
+        >
+          <Layers size={16} />
+          <span>多 Agent 并行</span>
+        </button>
+
+        {/* 自动化任务 */}
+        <button
+          onClick={() => navigate('/automations')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname === '/automations'
+              ? 'bg-sidebar-active text-gray-900 font-medium'
+              : 'text-gray-700 hover:bg-sidebar-hover'
+          }`}
+        >
+          <Zap size={16} />
+          <span>自动化任务</span>
         </button>
       </div>
 
