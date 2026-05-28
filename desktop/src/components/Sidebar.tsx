@@ -145,10 +145,7 @@ export default function Sidebar() {
           {teams.map((team) => (
             <button
               key={team.id}
-              onClick={() => {
-                const id = createSession(team.id)
-                navigate(`/chat/${id}`)
-              }}
+              onClick={() => navigate('/team')}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <Users size={14} className="text-gray-400" />
