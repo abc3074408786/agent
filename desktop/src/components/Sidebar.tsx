@@ -47,12 +47,15 @@ export default function Sidebar() {
     }
   }
 
-  // 团队数据
-  const teams = [
-    { id: 'sales_agent', name: 'sales_agent', icon: '👤' },
-    { id: 'web', name: '网页', icon: '👤' },
-    { id: 'agentic_rag', name: 'agentic_rag', icon: '👤' },
-  ]
+  // 团队数据（从 store 读取）
+  const storeTeams = useAppStore((state) => state.teams)
+  const teams = storeTeams.length > 0
+    ? storeTeams.map(t => ({ id: t.id, name: t.name, icon: t.leader.icon }))
+    : [
+        { id: 'sales_agent', name: 'sales_agent', icon: '👤' },
+        { id: 'web', name: '网页', icon: '👤' },
+        { id: 'agentic_rag', name: 'agentic_rag', icon: '👤' },
+      ]
 
   // 项目数据
   const projects: ProjectItem[] = [
@@ -247,9 +250,14 @@ export default function Sidebar() {
       {showCreateTeam && (
         <CreateTeamModal
           onClose={() => setShowCreateTeam(false)}
-          onCreate={(team) => {
-            // TODO: 保存团队到 store
-            console.log('Created team:', team)
+          onCreate={(teamData) => {
+            useAppStore.getState().addTeam({
+              name: teamData.name,
+              description: teamData.description,
+              leader: teamData.leader,
+              members: teamData.members,
+              project: teamData.project
+            })
             setShowCreateTeam(false)
           }}
         />
