@@ -30,6 +30,26 @@ export interface AgentPreset {
   color: string
 }
 
+// 团队成员类型
+export interface TeamMember {
+  agentId: string
+  agentName: string
+  icon: string
+  model: string
+  role: 'leader' | 'member'
+}
+
+// 团队类型
+export interface Team {
+  id: string
+  name: string
+  description: string
+  leader: TeamMember
+  members: TeamMember[]
+  project?: string
+  createdAt: number
+}
+
 // 设置类型
 export interface Settings {
   // LLM 模式
@@ -58,6 +78,8 @@ interface AppState {
   // 会话
   sessions: Session[]
   currentSessionId: string | null
+  // 团队
+  teams: Team[]
   // 设置
   settings: Settings
   // Agent 状态（不持久化）
@@ -79,6 +101,10 @@ interface AppState {
   setIsGenerating: (generating: boolean) => void
   setAbortController: (controller: AbortController | null) => void
   setPendingSessionId: (id: string | null) => void
+  // 团队操作
+  addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => string
+  removeTeam: (id: string) => void
+  updateTeam: (id: string, partial: Partial<Team>) => void
 }
 
 const defaultSettings: Settings = {
@@ -101,6 +127,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       sessions: [],
       currentSessionId: null,
+      teams: [],
       settings: defaultSettings,
       agentRunning: false,
       isGenerating: false,
@@ -208,6 +235,32 @@ export const useAppStore = create<AppState>()(
 
       setPendingSessionId: (id: string | null) => {
         set({ pendingSessionId: id })
+      },
+
+      // 团队操作
+      addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => {
+        const id = crypto.randomUUID()
+        const newTeam: Team = {
+          ...team,
+          id,
+          createdAt: Date.now()
+        }
+        set((state) => ({
+          teams: [...state.teams, newTeam]
+        }))
+        return id
+      },
+
+      removeTeam: (id: string) => {
+        set((state) => ({
+          teams: state.teams.filter((t) => t.id !== id)
+        }))
+      },
+
+      updateTeam: (id: string, partial: Partial<Team>) => {
+        set((state) => ({
+          teams: state.teams.map((t) => t.id === id ? { ...t, ...partial } : t)
+        }))
       }
     }),
     {
@@ -217,6 +270,7 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
+        teams: state.teams,
         settings: state.settings
       })
     }
