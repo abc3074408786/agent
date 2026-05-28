@@ -1,7 +1,6 @@
 {
   "name": "agent-desktop",
   "version": "0.1.0",
-  "type": "module",
   "description": "AI Agent Desktop Client",
   "main": "dist-electron/main.js",
   "scripts": {
