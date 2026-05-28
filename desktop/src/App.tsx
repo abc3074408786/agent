@@ -4,6 +4,8 @@ import Layout from './components/Layout'
 import WelcomePage from './pages/WelcomePage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
+import MultiAgentPage from './pages/MultiAgentPage'
+import AutomationsPage from './pages/AutomationsPage'
 
 export default function App() {
   return (
@@ -14,6 +16,8 @@ export default function App() {
             <Routes>
               <Route path="/" element={<WelcomePage />} />
               <Route path="/chat/:sessionId" element={<ChatPage />} />
+              <Route path="/agents" element={<MultiAgentPage />} />
+              <Route path="/automations" element={<AutomationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </ErrorBoundary>
