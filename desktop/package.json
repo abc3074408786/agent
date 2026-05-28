@@ -1,6 +1,7 @@
 {
   "name": "agent-desktop",
   "version": "0.1.0",
+  "type": "module",
   "description": "AI Agent Desktop Client",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -8,7 +9,7 @@
     "build": "tsc && vite build && electron-builder",
     "build:electron": "tsc -p tsconfig.electron.json",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "vite",
     "pack:full": "electron-builder --config electron-builder.full.yml",
     "pack:lite": "electron-builder --config electron-builder.lite.yml"
   },

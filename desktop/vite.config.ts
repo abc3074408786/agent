@@ -10,6 +10,11 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        onstart(args) {
+          // 关键：让 vite-plugin-electron 自动启动 Electron
+          // 它会注入 VITE_DEV_SERVER_URL 环境变量
+          args.startup()
+        },
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -21,8 +26,9 @@ export default defineConfig({
       },
       {
         entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload()
+        onstart(args) {
+          // preload 变更时通知 Electron 刷新页面
+          args.reload()
         },
         vite: {
           build: {
