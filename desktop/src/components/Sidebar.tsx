@@ -1,18 +1,19 @@
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
-  Plus,
-  Search,
-  Clock,
-  Users,
-  FolderOpen,
-  MessageSquare,
-  Settings,
-  Star,
-  Trash2,
-  Layers,
-  Zap
+  Plus, Search, Clock, ChevronDown, ChevronRight,
+  MessageSquare, Settings, Trash2, FolderOpen, ListFilter,
+  Users
 } from 'lucide-react'
 import { useAppStore, Session } from '../store'
+import CreateTeamModal from './CreateTeamModal'
+
+interface ProjectItem {
+  id: string
+  name: string
+  icon: string
+  conversations: { id: string; title: string; icon: string }[]
+}
 
 export default function Sidebar() {
   const navigate = useNavigate()
@@ -24,6 +25,9 @@ export default function Sidebar() {
     deleteSession,
     setCurrentSession
   } = useAppStore()
+
+  const [showCreateTeam, setShowCreateTeam] = useState(false)
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(['1', '2']))
 
   const handleNewSession = () => {
     const id = createSession()
@@ -43,118 +47,160 @@ export default function Sidebar() {
     }
   }
 
-  const handleGoHome = () => {
-    navigate('/')
-  }
-
-  const handleGoSettings = () => {
-    navigate('/settings')
-  }
-
-  // 按 Agent 类型分组的团队列表
-  const teamAgents = [
-    { id: 'code_reviewer', name: '代码审查', icon: '🔍' },
-    { id: 'architect', name: '架构师', icon: '🏗️' },
-    { id: 'python_developer', name: 'Python 开发', icon: '🐍' },
-    { id: 'bug_fixer', name: 'Bug 修复', icon: '🐛' },
-    { id: 'agentic_rag', name: 'RAG 知识库', icon: '📚' }
+  // 团队数据
+  const teams = [
+    { id: 'sales_agent', name: 'sales_agent', icon: '👤' },
+    { id: 'web', name: '网页', icon: '👤' },
+    { id: 'agentic_rag', name: 'agentic_rag', icon: '👤' },
   ]
 
+  // 项目数据
+  const projects: ProjectItem[] = [
+    {
+      id: '1',
+      name: 'data_cleaner',
+      icon: '📁',
+      conversations: [
+        { id: 'c1', title: '这是什么项目', icon: '⊙' },
+      ]
+    },
+    {
+      id: '2',
+      name: 'rag_app',
+      icon: '📁',
+      conversations: [
+        { id: 'c2', title: '你好', icon: '🌸' },
+      ]
+    }
+  ]
+
+  const toggleProject = (id: string) => {
+    const next = new Set(expandedProjects)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setExpandedProjects(next)
+  }
+
+  // 获取对话图标（根据 agent 类型）
+  const getSessionIcon = (session: Session) => {
+    if (session.agentType === 'agentic_rag') return '📚'
+    if (session.agentType === 'code_reviewer') return '🔍'
+    if (session.agentType === 'python_developer') return '🐍'
+    return '⊙'
+  }
+
   return (
-    <aside className="w-60 h-full bg-sidebar-bg border-r border-gray-200 flex flex-col select-none">
+    <aside className="w-[220px] h-full bg-white border-r border-gray-200 flex flex-col select-none">
       {/* 顶部操作区 */}
-      <div className="p-3 space-y-1">
-        {/* 新会话按钮 */}
-        <button
-          onClick={handleNewSession}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-sidebar-hover transition-colors"
-        >
-          <Plus size={16} />
-          <span>新会话</span>
-        </button>
+      <div className="px-3 pt-3 pb-2 space-y-0.5">
+        {/* 新会话 + 排序按钮 */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleNewSession}
+            className="flex-1 flex items-center gap-2 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <Plus size={15} className="text-gray-500" />
+            <span>新会话</span>
+          </button>
+          <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+            <ListFilter size={15} />
+          </button>
+        </div>
 
         {/* 搜索 */}
-        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-sidebar-hover transition-colors">
-          <Search size={16} />
+        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+          <Search size={15} className="text-gray-400" />
           <span>搜索</span>
         </button>
 
-        {/* 多 Agent 并行 */}
-        <button
-          onClick={() => navigate('/agents')}
-          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
-            location.pathname === '/agents'
-              ? 'bg-sidebar-active text-gray-900 font-medium'
-              : 'text-gray-700 hover:bg-sidebar-hover'
-          }`}
-        >
-          <Layers size={16} />
-          <span>多 Agent 并行</span>
-        </button>
-
-        {/* 自动化任务 */}
+        {/* 定时任务 */}
         <button
           onClick={() => navigate('/automations')}
           className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
             location.pathname === '/automations'
-              ? 'bg-sidebar-active text-gray-900 font-medium'
-              : 'text-gray-700 hover:bg-sidebar-hover'
+              ? 'bg-gray-100 text-gray-900'
+              : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
-          <Zap size={16} />
-          <span>自动化任务</span>
+          <Clock size={15} className="text-gray-400" />
+          <span>定时任务</span>
         </button>
       </div>
 
-      {/* 分割线 */}
-      <div className="mx-3 border-t border-gray-200" />
-
-      {/* 团队 Agent 列表 */}
-      <div className="px-3 pt-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-400 font-medium uppercase">团队</span>
-          <button className="text-gray-400 hover:text-gray-600">
-            <Plus size={14} />
+      {/* 团队分组 */}
+      <div className="px-3 pt-2">
+        <div className="flex items-center justify-between mb-1 px-1">
+          <span className="text-xs text-gray-400 font-medium">团队</span>
+          <button
+            onClick={() => setShowCreateTeam(true)}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <Plus size={13} />
           </button>
         </div>
         <div className="space-y-0.5">
-          {teamAgents.map((agent) => (
+          {teams.map((team) => (
             <button
-              key={agent.id}
+              key={team.id}
               onClick={() => {
-                const id = createSession(agent.id)
+                const id = createSession(team.id)
                 navigate(`/chat/${id}`)
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 rounded-lg hover:bg-sidebar-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             >
-              <span className="text-base">{agent.icon}</span>
-              <span className="truncate">{agent.name}</span>
+              <Users size={14} className="text-gray-400" />
+              <span className="truncate">{team.name}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* 分割线 */}
-      <div className="mx-3 mt-3 border-t border-gray-200" />
-
-      {/* 项目 */}
+      {/* 项目分组 */}
       <div className="px-3 pt-3">
-        <span className="text-xs text-gray-400 font-medium uppercase">项目</span>
-        <div className="mt-1 space-y-0.5">
-          <button className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 rounded-lg hover:bg-sidebar-hover transition-colors">
-            <FolderOpen size={14} />
-            <span className="truncate">当前项目</span>
-          </button>
+        <div className="flex items-center justify-between mb-1 px-1">
+          <span className="text-xs text-gray-400 font-medium">项目</span>
+        </div>
+        <div className="space-y-0.5">
+          {projects.map((project) => (
+            <div key={project.id}>
+              {/* 项目行 */}
+              <button
+                onClick={() => toggleProject(project.id)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                {expandedProjects.has(project.id) ? (
+                  <ChevronDown size={12} className="text-gray-400" />
+                ) : (
+                  <ChevronRight size={12} className="text-gray-400" />
+                )}
+                <FolderOpen size={14} className="text-gray-400" />
+                <span className="truncate">{project.name}</span>
+              </button>
+              {/* 项目下的对话 */}
+              {expandedProjects.has(project.id) && (
+                <div className="ml-4 space-y-0.5">
+                  {project.conversations.map((conv) => (
+                    <button
+                      key={conv.id}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-500 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <span className="text-xs">{conv.icon}</span>
+                      <span className="truncate">{conv.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* 分割线 */}
-      <div className="mx-3 mt-3 border-t border-gray-200" />
-
-      {/* 对话历史 */}
+      {/* 对话分组 */}
       <div className="px-3 pt-3 flex-1 overflow-y-auto">
-        <span className="text-xs text-gray-400 font-medium uppercase">对话</span>
-        <div className="mt-1 space-y-0.5">
+        <div className="flex items-center justify-between mb-1 px-1">
+          <span className="text-xs text-gray-400 font-medium">对话</span>
+        </div>
+        <div className="space-y-0.5">
           {sessions.length === 0 ? (
             <p className="text-xs text-gray-400 px-3 py-2">暂无对话记录</p>
           ) : (
@@ -164,11 +210,11 @@ export default function Sidebar() {
                 onClick={() => handleSelectSession(session)}
                 className={`group w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg cursor-pointer transition-colors ${
                   currentSessionId === session.id
-                    ? 'bg-sidebar-active text-gray-900'
-                    : 'text-gray-600 hover:bg-sidebar-hover'
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <MessageSquare size={14} className="shrink-0" />
+                <span className="text-xs shrink-0">{getSessionIcon(session)}</span>
                 <span className="truncate flex-1 text-left">{session.title}</span>
                 <button
                   onClick={(e) => handleDeleteSession(e, session.id)}
@@ -182,23 +228,32 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* 底部操作 */}
-      <div className="p-3 border-t border-gray-200 space-y-0.5">
+      {/* 底部：设置 */}
+      <div className="px-3 py-3 border-t border-gray-100">
         <button
-          onClick={handleGoHome}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-sidebar-hover transition-colors"
+          onClick={() => navigate('/settings')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname === '/settings'
+              ? 'bg-gray-100 text-gray-900'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
         >
-          <Star size={16} />
-          <span>助手广场</span>
-        </button>
-        <button
-          onClick={handleGoSettings}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-sidebar-hover transition-colors"
-        >
-          <Settings size={16} />
+          <Settings size={15} className="text-gray-400" />
           <span>设置</span>
         </button>
       </div>
+
+      {/* 创建团队弹窗 */}
+      {showCreateTeam && (
+        <CreateTeamModal
+          onClose={() => setShowCreateTeam(false)}
+          onCreate={(team) => {
+            // TODO: 保存团队到 store
+            console.log('Created team:', team)
+            setShowCreateTeam(false)
+          }}
+        />
+      )}
     </aside>
   )
 }
