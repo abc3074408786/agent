@@ -9,7 +9,12 @@ export default defineConfig({
     vue(),
     electron([
       {
+        // Main process
         entry: 'electron/main.ts',
+        onstart(args) {
+          // 自动启动 Electron 并传入 dev server URL
+          args.startup()
+        },
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -20,9 +25,11 @@ export default defineConfig({
         },
       },
       {
+        // Preload script
         entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload()
+        onstart(args) {
+          // preload 变更时刷新页面
+          args.reload()
         },
         vite: {
           build: {
@@ -40,5 +47,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+  },
+  build: {
+    outDir: 'dist',
   },
 })

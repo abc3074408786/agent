@@ -61,17 +61,17 @@ export const useTeamStore = defineStore('team', () => {
 
   // Actions
   function connect() {
-    const wsUrl = `ws://localhost:${serverPort.value}/ws/${sessionId.value || 'auto'}`
-
     // 先通过 HTTP 创建会话
     fetch(`http://localhost:${serverPort.value}/api/sessions`, { method: 'POST' })
       .then(res => res.json())
       .then(data => {
         sessionId.value = data.session_id
+        serverStatus.value = 'running'
         connectWebSocket()
       })
       .catch(() => {
         // 服务器还没启动，延迟重试
+        console.log('[WS] Server not ready, retrying in 2s...')
         reconnectTimer = setTimeout(() => connect(), 2000)
       })
   }

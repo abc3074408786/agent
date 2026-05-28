@@ -1,16 +1,20 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
-// 禁用 GPU 缓存错误 (Windows)
+// 禁用 Windows GPU 缓存错误
 app.commandLine.appendSwitch('disable-gpu-cache')
+app.commandLine.appendSwitch('disable-gpu')
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
 
 const PYTHON_SERVER_PORT = 8080
 const isDev = !app.isPackaged
+
+// vite-plugin-electron 会注入这个环境变量
+const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -19,8 +23,8 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 700,
     title: 'Agent Desktop - 团队协作',
-    titleBarStyle: 'hiddenInset',
     backgroundColor: '#1a1b26',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -28,66 +32,86 @@ function createWindow() {
     },
   })
 
-  // 开发模式加载 Vite dev server
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+  // 窗口准备好再显示，避免白屏闪烁
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show()
+  })
+
+  if (VITE_DEV_SERVER_URL) {
+    // 开发模式: vite-plugin-electron 自动注入 URL
+    console.log(`[Electron] Loading dev server: ${VITE_DEV_SERVER_URL}`)
+    mainWindow.loadURL(VITE_DEV_SERVER_URL)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    // 生产模式加载打包后的文件
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    // 生产模式: 加载打包后的 HTML
+    const htmlPath = path.join(__dirname, '../dist/index.html')
+    console.log(`[Electron] Loading file: ${htmlPath}`)
+    mainWindow.loadFile(htmlPath)
   }
 
   mainWindow.on('closed', () => {
     mainWindow = null
   })
 
-  // 外部链接用默认浏览器打开
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
 }
 
-// ============ Python 后端进程管理 ============
+// ============ Python 后端管理 ============
 
 function findPythonPath(): string {
-  // 按优先级查找 Python
-  const candidates = [
-    'python3',
-    'python',
-    path.join(process.env.CONDA_PREFIX || '', 'python'),
-    path.join(process.env.VIRTUAL_ENV || '', 'bin', 'python'),
-    path.join(process.env.VIRTUAL_ENV || '', 'Scripts', 'python.exe'),
-  ]
+  // Windows 优先 python, Linux/Mac 优先 python3
+  const isWin = process.platform === 'win32'
+  const candidates = isWin
+    ? ['python', 'python3', 'py']
+    : ['python3', 'python']
 
-  for (const candidate of candidates) {
+  for (const cmd of candidates) {
     try {
-      const result = require('child_process').execSync(`${candidate} --version`, {
+      const result = execSync(`${cmd} --version`, {
         encoding: 'utf-8',
         timeout: 5000,
+        stdio: ['pipe', 'pipe', 'pipe'],
       })
-      if (result.includes('Python')) {
-        return candidate
+      if (result.includes('Python 3')) {
+        console.log(`[Python] Found: ${cmd} -> ${result.trim()}`)
+        return cmd
       }
     } catch {
       continue
     }
   }
-  return 'python'
+
+  console.warn('[Python] No Python 3 found in PATH')
+  return isWin ? 'python' : 'python3'
 }
 
 function getAgentRootPath(): string {
-  // 查找 agent 项目根目录
   if (isDev) {
-    // 开发模式: desktop/ 同级的 agent 目录
-    return path.resolve(__dirname, '..', '..')
+    // 开发模式: desktop 的父目录就是项目根
+    // __dirname 在 dev 模式下是 dist-electron/
+    // 所以 ../.. 到项目根
+    const devRoot = path.resolve(__dirname, '..')
+    const parentRoot = path.resolve(devRoot, '..')
+
+    // 检查 run_team_ui.py 在哪个层级
+    if (fs.existsSync(path.join(devRoot, 'run_team_ui.py'))) {
+      return devRoot
+    }
+    if (fs.existsSync(path.join(parentRoot, 'run_team_ui.py'))) {
+      return parentRoot
+    }
+    // 默认返回父目录
+    return parentRoot
   } else {
-    // 打包模式: 查找资源目录
-    const resourcePath = path.join(process.resourcesPath, 'agent')
-    if (fs.existsSync(resourcePath)) {
+    // 打包模式
+    const resourcePath = path.join(process.resourcesPath)
+    if (fs.existsSync(path.join(resourcePath, 'run_team_ui.py'))) {
       return resourcePath
     }
-    return path.resolve(app.getAppPath(), '..', '..')
+    return path.resolve(app.getAppPath(), '..')
   }
 }
 
@@ -96,60 +120,74 @@ function startPythonServer(): void {
   const agentRoot = getAgentRootPath()
   const scriptPath = path.join(agentRoot, 'run_team_ui.py')
 
+  console.log(`[Python] Agent root: ${agentRoot}`)
+  console.log(`[Python] Script path: ${scriptPath}`)
+
   if (!fs.existsSync(scriptPath)) {
-    console.warn(`⚠️  Python script not found: ${scriptPath}`)
-    console.warn('   Running in frontend-only mode (no backend)')
+    console.warn(`[Python] ⚠️ Script not found: ${scriptPath}`)
+    console.warn('[Python] Running in frontend-only mode')
     sendToRenderer('python-status', { status: 'not-found', path: scriptPath })
     return
   }
 
-  console.log(`🐍 Starting Python server: ${pythonPath} ${scriptPath}`)
-  console.log(`   Working dir: ${agentRoot}`)
+  console.log(`[Python] Starting: ${pythonPath} ${scriptPath} --port ${PYTHON_SERVER_PORT}`)
 
   pythonProcess = spawn(pythonPath, [scriptPath, '--port', String(PYTHON_SERVER_PORT)], {
     cwd: agentRoot,
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
 
   pythonProcess.stdout?.on('data', (data: Buffer) => {
     const msg = data.toString().trim()
-    console.log(`[Python] ${msg}`)
-    sendToRenderer('python-log', { message: msg })
-
-    // 检测服务器启动成功
-    if (msg.includes('running at') || msg.includes('Starting')) {
-      sendToRenderer('python-status', { status: 'running', port: PYTHON_SERVER_PORT })
+    if (msg) {
+      console.log(`[Python] ${msg}`)
+      sendToRenderer('python-log', { message: msg })
+      if (msg.includes('running at') || msg.includes('Starting') || msg.includes('Server')) {
+        sendToRenderer('python-status', { status: 'running', port: PYTHON_SERVER_PORT })
+      }
     }
   })
 
   pythonProcess.stderr?.on('data', (data: Buffer) => {
     const msg = data.toString().trim()
-    console.error(`[Python Error] ${msg}`)
-    sendToRenderer('python-log', { message: msg, level: 'error' })
+    if (msg) {
+      console.error(`[Python ERR] ${msg}`)
+      sendToRenderer('python-log', { message: msg, level: 'error' })
+    }
   })
 
   pythonProcess.on('exit', (code) => {
-    console.log(`[Python] Process exited with code ${code}`)
+    console.log(`[Python] Exited with code ${code}`)
     sendToRenderer('python-status', { status: 'stopped', code })
     pythonProcess = null
   })
 
   pythonProcess.on('error', (err) => {
-    console.error(`[Python] Failed to start: ${err.message}`)
+    console.error(`[Python] Spawn error: ${err.message}`)
     sendToRenderer('python-status', { status: 'error', error: err.message })
     pythonProcess = null
   })
 }
 
 function stopPythonServer(): void {
-  if (pythonProcess) {
-    console.log('🛑 Stopping Python server...')
-    pythonProcess.kill('SIGTERM')
-    setTimeout(() => {
-      if (pythonProcess && !pythonProcess.killed) {
-        pythonProcess.kill('SIGKILL')
+  if (pythonProcess && !pythonProcess.killed) {
+    console.log('[Python] Stopping server...')
+    if (process.platform === 'win32') {
+      // Windows: 用 taskkill 强制结束进程树
+      try {
+        execSync(`taskkill /pid ${pythonProcess.pid} /T /F`, { stdio: 'pipe' })
+      } catch {
+        pythonProcess.kill()
       }
-    }, 3000)
+    } else {
+      pythonProcess.kill('SIGTERM')
+      setTimeout(() => {
+        if (pythonProcess && !pythonProcess.killed) {
+          pythonProcess.kill('SIGKILL')
+        }
+      }, 3000)
+    }
   }
 }
 
@@ -159,15 +197,13 @@ function sendToRenderer(channel: string, data: any): void {
   }
 }
 
-// ============ IPC Handlers ============
+// ============ IPC ============
 
-ipcMain.handle('get-server-info', () => {
-  return {
-    port: PYTHON_SERVER_PORT,
-    isRunning: pythonProcess !== null && !pythonProcess.killed,
-    agentRoot: getAgentRootPath(),
-  }
-})
+ipcMain.handle('get-server-info', () => ({
+  port: PYTHON_SERVER_PORT,
+  isRunning: pythonProcess !== null && !pythonProcess.killed,
+  agentRoot: getAgentRootPath(),
+}))
 
 ipcMain.handle('start-python-server', () => {
   if (!pythonProcess || pythonProcess.killed) {
@@ -182,21 +218,21 @@ ipcMain.handle('stop-python-server', () => {
   return { status: 'stopping' }
 })
 
-ipcMain.handle('get-app-info', () => {
-  return {
-    version: app.getVersion(),
-    platform: process.platform,
-    isDev,
-    electronVersion: process.versions.electron,
-    nodeVersion: process.versions.node,
-  }
-})
+ipcMain.handle('get-app-info', () => ({
+  version: app.getVersion(),
+  platform: process.platform,
+  isDev,
+  electronVersion: process.versions.electron,
+  nodeVersion: process.versions.node,
+}))
 
 // ============ App Lifecycle ============
 
 app.whenReady().then(() => {
   createWindow()
-  startPythonServer()
+
+  // 延迟一点启动 Python，让窗口先显示
+  setTimeout(() => startPythonServer(), 1000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
