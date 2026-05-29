@@ -408,6 +408,208 @@ ipcMain.handle('project:readFile', async (_event, filePath: string) => {
 })
 
 // ============================================================
+// VSCode 集成
+// ============================================================
+
+// 用 VSCode 打开文件（支持跳转到行号）
+ipcMain.handle('vscode:openFile', async (_event, filePath: string, line?: number) => {
+  try {
+    const args = line ? [`--goto`, `${filePath}:${line}`] : [filePath]
+    spawn('code', args, { detached: true, shell: true, stdio: 'ignore' }).unref()
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+// 用 VSCode 打开文件夹
+ipcMain.handle('vscode:openFolder', async (_event, folderPath: string) => {
+  try {
+    spawn('code', [folderPath], { detached: true, shell: true, stdio: 'ignore' }).unref()
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+// ============================================================
+// ACP (Agent Client Protocol) - Codex CLI 桥接
+// ============================================================
+
+let codexProcess: ChildProcess | null = null
+let codexSessionId: string | null = null
+let codexRequestId = 0
+
+function getNextCodexRequestId(): number {
+  return ++codexRequestId
+}
+
+// 查找 Codex CLI 路径
+function findCodexPath(): string | null {
+  const possiblePaths = process.platform === 'win32'
+    ? ['codex.cmd', 'codex.exe', 'codex']
+    : ['codex', '/usr/local/bin/codex', `${process.env.HOME}/.local/bin/codex`]
+
+  for (const p of possiblePaths) {
+    try {
+      execSync(`which ${p} 2>/dev/null || where ${p} 2>nul`, { stdio: 'ignore' })
+      return p
+    } catch { /* not found */ }
+  }
+
+  // Try npx as fallback
+  try {
+    execSync('npx codex --version', { stdio: 'ignore', timeout: 5000 })
+    return 'npx codex'
+  } catch { /* not found */ }
+
+  return null
+}
+
+// 启动 Codex CLI 进程 (ACP over stdio)
+ipcMain.handle('codex:start', async (_event, cwd?: string) => {
+  if (codexProcess) {
+    return { success: true, message: 'Codex already running' }
+  }
+
+  const codexPath = findCodexPath()
+  if (!codexPath) {
+    return { success: false, error: 'Codex CLI not found. Please install: npm install -g @openai/codex' }
+  }
+
+  try {
+    const args = ['--agent']
+    const workDir = cwd || process.cwd()
+
+    if (codexPath === 'npx codex') {
+      codexProcess = spawn('npx', ['codex', ...args], {
+        cwd: workDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env }
+      })
+    } else {
+      codexProcess = spawn(codexPath, args, {
+        cwd: workDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env }
+      })
+    }
+
+    // Buffer for receiving JSON-RPC messages (newline-delimited)
+    let buffer = ''
+
+    codexProcess.stdout?.on('data', (data: Buffer) => {
+      buffer += data.toString()
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const msg = JSON.parse(line)
+            mainWindow?.webContents.send('codex:message', msg)
+          } catch {
+            // Not valid JSON, might be log output
+            mainWindow?.webContents.send('codex:log', line)
+          }
+        }
+      }
+    })
+
+    codexProcess.stderr?.on('data', (data: Buffer) => {
+      mainWindow?.webContents.send('codex:log', data.toString())
+    })
+
+    codexProcess.on('close', (code) => {
+      codexProcess = null
+      codexSessionId = null
+      mainWindow?.webContents.send('codex:disconnected', { code })
+    })
+
+    codexProcess.on('error', (err) => {
+      mainWindow?.webContents.send('codex:error', err.message)
+      codexProcess = null
+    })
+
+    // Send initialize request (ACP handshake)
+    const initRequest = {
+      jsonrpc: '2.0',
+      id: getNextCodexRequestId(),
+      method: 'initialize',
+      params: {
+        clientInfo: { name: 'agent-desktop', version: '0.2.0' },
+        capabilities: {}
+      }
+    }
+    codexProcess.stdin?.write(JSON.stringify(initRequest) + '\n')
+
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+// 停止 Codex CLI
+ipcMain.handle('codex:stop', async () => {
+  if (codexProcess) {
+    codexProcess.kill()
+    codexProcess = null
+    codexSessionId = null
+  }
+  return { success: true }
+})
+
+// 创建 ACP session
+ipcMain.handle('codex:createSession', async (_event, cwd: string) => {
+  if (!codexProcess?.stdin) {
+    return { success: false, error: 'Codex not running' }
+  }
+
+  const request = {
+    jsonrpc: '2.0',
+    id: getNextCodexRequestId(),
+    method: 'session/new',
+    params: { cwd }
+  }
+  codexProcess.stdin.write(JSON.stringify(request) + '\n')
+  return { success: true, requestId: request.id }
+})
+
+// 发送消息给 Codex
+ipcMain.handle('codex:sendMessage', async (_event, sessionId: string, content: string) => {
+  if (!codexProcess?.stdin) {
+    return { success: false, error: 'Codex not running' }
+  }
+
+  const request = {
+    jsonrpc: '2.0',
+    id: getNextCodexRequestId(),
+    method: 'session/message',
+    params: {
+      sessionId,
+      parts: [{ type: 'text', text: content }]
+    }
+  }
+  codexProcess.stdin.write(JSON.stringify(request) + '\n')
+  return { success: true, requestId: request.id }
+})
+
+// 发送原始 JSON-RPC 消息
+ipcMain.handle('codex:sendRaw', async (_event, message: object) => {
+  if (!codexProcess?.stdin) {
+    return { success: false, error: 'Codex not running' }
+  }
+
+  codexProcess.stdin.write(JSON.stringify(message) + '\n')
+  return { success: true }
+})
+
+// 获取 Codex 状态
+ipcMain.handle('codex:status', async () => {
+  return { running: codexProcess !== null }
+})
+
+// ============================================================
 // 应用生命周期
 // ============================================================
 

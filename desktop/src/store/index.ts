@@ -111,6 +111,8 @@ export interface Settings {
   artifactsPanelOpen: boolean
   // Permission mode
   permissionMode: 'default' | 'auto_edit' | 'full_auto'
+  // Active CLI Agent (for ACP routing)
+  activeCliAgent: 'none' | 'codex' | 'claude_code' | 'custom'
 }
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -255,6 +257,7 @@ const defaultSettings: Settings = {
   sidebarWidth: 240,
   artifactsPanelOpen: false,
   permissionMode: 'default',
+  activeCliAgent: 'none',
 }
 
 export const useAppStore = create<AppState>()(

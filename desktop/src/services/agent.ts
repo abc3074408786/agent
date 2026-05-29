@@ -1,4 +1,5 @@
 import { useAppStore, Message } from '../store'
+import { sendCodexMessage, getCodexStatus } from './codex'
 
 /**
  * Agent API 服务层
@@ -46,8 +47,33 @@ export interface ChatRequest {
 export const agentService = {
   /**
    * 发送聊天消息（流式，支持中断）
+   * 自动路由：如果当前 agent 是 codex 且 Codex 已连接，走 ACP；否则走 HTTP API
    */
   async chat(
+    message: string,
+    history: Message[],
+    agentType?: string,
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const settings = useAppStore.getState().settings
+
+    // Route through Codex if selected and running
+    if ((settings as any).activeCliAgent === 'codex') {
+      const codexRunning = await getCodexStatus()
+      if (codexRunning) {
+        return sendCodexMessage(message, onChunk || (() => {}), signal)
+      }
+    }
+
+    // Default: route through HTTP API
+    return this._chatViaHttp(message, history, agentType, onChunk, signal)
+  },
+
+  /**
+   * HTTP API 聊天（原有逻辑）
+   */
+  async _chatViaHttp(
     message: string,
     history: Message[],
     agentType?: string,

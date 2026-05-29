@@ -4,6 +4,7 @@ import TitleBar from './TitleBar'
 import ArtifactsPanel from './ArtifactsPanel'
 import ProjectFilesPanel from './ProjectFilesPanel'
 import { useAppStore } from '../store'
+import { initCodexListeners } from '../services/codex'
 
 interface LayoutProps {
   children: ReactNode
@@ -33,6 +34,7 @@ export default function Layout({ children }: LayoutProps) {
   // Fetch remote models/agents on mount and when connection settings change
   useEffect(() => {
     fetchRemoteConfig()
+    initCodexListeners()
   }, [settings.agentMode, settings.agentLocalPort, settings.agentRemoteUrl])
 
   return (

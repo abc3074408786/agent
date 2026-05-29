@@ -32,6 +32,22 @@ export interface ElectronAPI {
     readDir: (dirPath: string) => Promise<FileTreeNode[]>
     readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   }
+  vscode: {
+    openFile: (filePath: string, line?: number) => Promise<{ success: boolean; error?: string }>
+    openFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>
+  }
+  codex: {
+    start: (cwd?: string) => Promise<{ success: boolean; error?: string; message?: string }>
+    stop: () => Promise<{ success: boolean }>
+    createSession: (cwd: string) => Promise<{ success: boolean; requestId?: number; error?: string }>
+    sendMessage: (sessionId: string, content: string) => Promise<{ success: boolean; requestId?: number; error?: string }>
+    sendRaw: (message: object) => Promise<{ success: boolean; error?: string }>
+    status: () => Promise<{ running: boolean }>
+    onMessage: (callback: (msg: any) => void) => void
+    onLog: (callback: (log: string) => void) => void
+    onDisconnected: (callback: (info: { code: number }) => void) => void
+    onError: (callback: (error: string) => void) => void
+  }
 }
 
 declare global {

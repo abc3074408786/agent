@@ -216,8 +216,8 @@ function TreeNode({
     if (isDir) {
       toggleDir(node.path)
     } else {
-      // Could open file in editor or send to Agent
-      // For now, just a visual selection
+      // Open file in VSCode
+      window.electronAPI?.vscode?.openFile(node.path)
     }
   }
 

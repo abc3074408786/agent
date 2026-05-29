@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Eye, EyeOff, Plus, Minus, Pencil, ChevronRight, ChevronDown,
   ToggleLeft, ToggleRight, ArrowLeft, Moon, Sun, Monitor,
-  Bot, Cpu, Users, Zap, Globe, PawPrint, Layers, Info
+  Bot, Cpu, Users, Zap, Globe, PawPrint, Layers, Info, Check
 } from 'lucide-react'
 import { useAppStore, Settings } from '../store'
 
@@ -281,8 +281,60 @@ function RemoteSection({ settings, updateSettings }: SettingsProps) {
       <div className="space-y-4">
         <TextInput label="Agent 服务地址" value={settings.agentRemoteUrl} onChange={(v) => updateSettings({ agentRemoteUrl: v })} placeholder="https://agent.your-server.com" />
         <TextInput label="本地端口" value={String(settings.agentLocalPort)} onChange={(v) => updateSettings({ agentLocalPort: parseInt(v) || 8765 })} placeholder="8765" />
+
+        {/* CLI Agent 选择 */}
+        <div className="mt-6 pt-6 border-t border-border">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">CLI Agent 集成 (ACP)</h4>
+          <p className="text-xs text-text-tertiary mb-4">
+            选择一个已安装的 CLI Agent，通过 ACP 协议在界面中调用。需要本地已安装对应工具。
+          </p>
+          <div className="space-y-2">
+            <CliAgentOption
+              active={(settings as any).activeCliAgent === 'none'}
+              onClick={() => updateSettings({ activeCliAgent: 'none' } as any)}
+              icon="⊘"
+              name="不使用"
+              description="仅使用内置 Agent HTTP API"
+            />
+            <CliAgentOption
+              active={(settings as any).activeCliAgent === 'codex'}
+              onClick={() => updateSettings({ activeCliAgent: 'codex' } as any)}
+              icon="⊙"
+              name="Codex CLI"
+              description="OpenAI Codex (需安装 npm i -g @openai/codex)"
+            />
+            <CliAgentOption
+              active={(settings as any).activeCliAgent === 'claude_code'}
+              onClick={() => updateSettings({ activeCliAgent: 'claude_code' } as any)}
+              icon="🌸"
+              name="Claude Code"
+              description="Anthropic Claude Code CLI (即将支持)"
+            />
+          </div>
+        </div>
       </div>
     </div>
+  )
+}
+
+function CliAgentOption({ active, onClick, icon, name, description }: {
+  active: boolean; onClick: () => void; icon: string; name: string; description: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+        active ? 'border-primary-500 bg-primary-500/5' : 'border-border hover:border-text-tertiary'
+      }`}
+      style={{ background: active ? undefined : 'var(--surface-secondary)' }}
+    >
+      <span className="text-lg">{icon}</span>
+      <div className="flex-1">
+        <p className={`text-sm font-medium ${active ? 'text-primary-500' : 'text-text-primary'}`}>{name}</p>
+        <p className="text-[10px] text-text-tertiary">{description}</p>
+      </div>
+      {active && <Check size={16} className="text-primary-500" />}
+    </button>
   )
 }
 
