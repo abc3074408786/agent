@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, safeStorage, dialog } from 'electron'
 import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
@@ -306,6 +306,105 @@ ipcMain.handle('window:isMaximized', () => {
 // 获取用户数据路径
 ipcMain.handle('app:getDataPath', () => {
   return app.getPath('userData')
+})
+
+// ============================================================
+// 项目文件系统 IPC
+// ============================================================
+
+// 忽略的目录和文件
+const IGNORED_NAMES = new Set([
+  'node_modules', '.git', '__pycache__', '.venv', 'venv', 'env',
+  '.next', '.nuxt', 'dist', 'build', '.cache', '.DS_Store',
+  'Thumbs.db', '.env', '.env.local', '*.pyc', '*.pyo',
+  '.idea', '.vscode', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+  'egg-info', '.tox', 'coverage', '.coverage', 'htmlcov'
+])
+
+function shouldIgnore(name: string): boolean {
+  if (IGNORED_NAMES.has(name)) return true
+  if (name.startsWith('.') && name !== '.env.example' && name !== '.gitignore') return false // show dotfiles selectively
+  if (name.endsWith('.pyc') || name.endsWith('.pyo')) return true
+  return false
+}
+
+interface FileTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileTreeNode[]
+}
+
+function readDirTree(dirPath: string, depth: number = 0, maxDepth: number = 4): FileTreeNode[] {
+  if (depth > maxDepth) return []
+
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    const nodes: FileTreeNode[] = []
+
+    for (const entry of entries) {
+      if (shouldIgnore(entry.name)) continue
+
+      const fullPath = path.join(dirPath, entry.name)
+
+      if (entry.isDirectory()) {
+        const children = readDirTree(fullPath, depth + 1, maxDepth)
+        nodes.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'directory',
+          children
+        })
+      } else if (entry.isFile()) {
+        nodes.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'file'
+        })
+      }
+    }
+
+    return nodes
+  } catch {
+    return []
+  }
+}
+
+// 打开文件夹对话框
+ipcMain.handle('project:openFolder', async () => {
+  if (!mainWindow) return null
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: '选择项目文件夹'
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const folderPath = result.filePaths[0]
+  return { path: folderPath }
+})
+
+// 读取目录树
+ipcMain.handle('project:readDir', async (_event, dirPath: string) => {
+  if (!dirPath || !fs.existsSync(dirPath)) return []
+  return readDirTree(dirPath)
+})
+
+// 读取文件内容
+ipcMain.handle('project:readFile', async (_event, filePath: string) => {
+  try {
+    if (!fs.existsSync(filePath)) return { success: false, error: 'File not found' }
+    const stat = fs.statSync(filePath)
+    // Limit file size to 1MB
+    if (stat.size > 1024 * 1024) return { success: false, error: 'File too large' }
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return { success: true, content }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
 })
 
 // ============================================================

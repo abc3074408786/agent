@@ -2,6 +2,7 @@ import { ReactNode, useEffect } from 'react'
 import Sidebar from './Sidebar'
 import TitleBar from './TitleBar'
 import ArtifactsPanel from './ArtifactsPanel'
+import ProjectFilesPanel from './ProjectFilesPanel'
 import { useAppStore } from '../store'
 
 interface LayoutProps {
@@ -49,7 +50,10 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
 
-        {/* Artifacts panel */}
+        {/* Project files panel (right side) */}
+        <ProjectFilesPanel />
+
+        {/* Artifacts panel (right side) */}
         <ArtifactsPanel />
       </div>
     </div>

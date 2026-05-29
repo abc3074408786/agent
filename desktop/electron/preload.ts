@@ -35,5 +35,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 应用信息
   app: {
     getDataPath: () => ipcRenderer.invoke('app:getDataPath')
+  },
+
+  // 项目文件系统
+  project: {
+    openFolder: () => ipcRenderer.invoke('project:openFolder'),
+    readDir: (dirPath: string) => ipcRenderer.invoke('project:readDir', dirPath),
+    readFile: (filePath: string) => ipcRenderer.invoke('project:readFile', filePath)
   }
 })

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus, Search, Clock, ChevronDown, ChevronRight,
   MessageSquare, Settings, Trash2, FolderOpen, Users,
-  PanelLeftClose, PanelLeftOpen, Bot, Zap
+  PanelLeftClose, PanelLeftOpen, Bot, Zap, FolderPlus, X
 } from 'lucide-react'
 import { useAppStore, Session } from '../store'
 import CreateTeamModal from './CreateTeamModal'
@@ -13,16 +13,21 @@ export default function Sidebar() {
   const location = useLocation()
   const {
     sessions, currentSessionId, createSession, deleteSession, setCurrentSession,
-    settings, toggleSidebar
+    settings, toggleSidebar,
+    projects, currentProjectId, setCurrentProject, addProject, removeProject, toggleProjectFiles
   } = useAppStore()
 
   const [showCreateTeam, setShowCreateTeam] = useState(false)
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(['1']))
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
 
   const collapsed = settings.sidebarCollapsed
 
   const handleNewSession = () => {
     const id = createSession()
+    // Link to current project if one is active
+    if (currentProjectId) {
+      useAppStore.getState().linkSessionToProject(currentProjectId, id)
+    }
     navigate(`/chat/${id}`)
   }
 
@@ -35,6 +40,56 @@ export default function Sidebar() {
     e.stopPropagation()
     deleteSession(id)
     if (currentSessionId === id) navigate('/')
+  }
+
+  // Open folder dialog via Electron IPC
+  const handleOpenFolder = async () => {
+    try {
+      const result = await window.electronAPI?.project?.openFolder()
+      if (result && result.path) {
+        const name = result.path.split(/[\\/]/).pop() || 'project'
+        addProject(name, result.path)
+      }
+    } catch {
+      // Fallback: prompt for path (when not in Electron)
+      const folderPath = prompt('输入项目路径：')
+      if (folderPath) {
+        const name = folderPath.split(/[\\/]/).pop() || 'project'
+        addProject(name, folderPath)
+      }
+    }
+  }
+
+  const handleSelectProject = (projectId: string) => {
+    setCurrentProject(projectId)
+    // Trigger file tree load
+    const project = projects.find(p => p.id === projectId)
+    if (project) {
+      loadProjectFiles(project.path)
+    }
+  }
+
+  const handleRemoveProject = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    removeProject(id)
+  }
+
+  const loadProjectFiles = async (projectPath: string) => {
+    try {
+      const tree = await window.electronAPI?.project?.readDir(projectPath)
+      if (tree) {
+        useAppStore.getState().setFileTree(tree)
+      }
+    } catch {
+      // Not in Electron or IPC not available
+    }
+  }
+
+  const toggleProject = (id: string) => {
+    const next = new Set(expandedProjects)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setExpandedProjects(next)
   }
 
   const storeTeams = useAppStore((state) => state.teams)
@@ -154,8 +209,83 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Teams */}
+      {/* Projects */}
       <div className="px-3 pt-2">
+        <div className="flex items-center justify-between mb-1 px-1">
+          <span className="text-[10px] text-text-tertiary font-semibold uppercase tracking-wider">项目</span>
+          <button
+            onClick={handleOpenFolder}
+            className="text-text-tertiary hover:text-text-primary transition-colors"
+            title="打开文件夹"
+          >
+            <FolderPlus size={12} />
+          </button>
+        </div>
+        <div className="space-y-0.5">
+          {projects.length === 0 ? (
+            <button
+              onClick={handleOpenFolder}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-tertiary rounded-lg border border-dashed border-border hover:border-text-tertiary hover:text-text-secondary transition-colors"
+            >
+              <FolderPlus size={13} />
+              <span>打开项目文件夹</span>
+            </button>
+          ) : (
+            projects.map((project) => (
+              <div key={project.id}>
+                <div
+                  onClick={() => handleSelectProject(project.id)}
+                  className={`group w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg cursor-pointer transition-colors ${
+                    currentProjectId === project.id
+                      ? 'bg-surface-tertiary text-text-primary font-medium'
+                      : 'text-text-secondary hover:bg-surface-tertiary'
+                  }`}
+                >
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleProject(project.id) }}
+                    className="text-text-tertiary shrink-0"
+                  >
+                    {expandedProjects.has(project.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  </button>
+                  <FolderOpen size={13} className="text-text-tertiary shrink-0" />
+                  <span className="truncate flex-1">{project.name}</span>
+                  <button
+                    onClick={(e) => handleRemoveProject(e, project.id)}
+                    className="opacity-0 group-hover:opacity-100 shrink-0 text-text-tertiary hover:text-accent-red transition-all"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                {/* Sessions under project */}
+                {expandedProjects.has(project.id) && (
+                  <div className="ml-6 space-y-0.5 mt-0.5">
+                    {sessions
+                      .filter(s => project.sessions.includes(s.id))
+                      .map(session => (
+                        <div
+                          key={session.id}
+                          onClick={() => handleSelectSession(session)}
+                          className={`group flex items-center gap-2 px-2 py-1 text-xs rounded-lg cursor-pointer transition-colors ${
+                            currentSessionId === session.id
+                              ? 'bg-surface-tertiary text-text-primary'
+                              : 'text-text-tertiary hover:bg-surface-tertiary hover:text-text-secondary'
+                          }`}
+                        >
+                          <span className="shrink-0">{getSessionIcon(session)}</span>
+                          <span className="truncate">{session.title}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Teams */}
+      <div className="px-3 pt-3">
         <div className="flex items-center justify-between mb-1 px-1">
           <span className="text-[10px] text-text-tertiary font-semibold uppercase tracking-wider">团队</span>
           <button

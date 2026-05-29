@@ -43,6 +43,23 @@ export interface Session {
   updatedAt: number
 }
 
+// Project types
+export interface FileTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileTreeNode[]
+  expanded?: boolean
+}
+
+export interface Project {
+  id: string
+  name: string
+  path: string // absolute filesystem path
+  sessions: string[] // session IDs associated with this project
+  createdAt: number
+}
+
 export interface AgentPreset {
   id: string
   name: string
@@ -157,6 +174,11 @@ interface AppState {
   // Sessions
   sessions: Session[]
   currentSessionId: string | null
+  // Projects
+  projects: Project[]
+  currentProjectId: string | null
+  projectFilesOpen: boolean
+  fileTree: FileTreeNode[]
   // Teams
   teams: Team[]
   // Settings
@@ -201,6 +223,13 @@ interface AppState {
   addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => string
   removeTeam: (id: string) => void
   updateTeam: (id: string, partial: Partial<Team>) => void
+  // Actions: Projects
+  addProject: (name: string, path: string) => string
+  removeProject: (id: string) => void
+  setCurrentProject: (id: string | null) => void
+  toggleProjectFiles: () => void
+  setFileTree: (tree: FileTreeNode[]) => void
+  linkSessionToProject: (projectId: string, sessionId: string) => void
   // Actions: Dynamic config
   fetchRemoteConfig: () => Promise<void>
   getModels: () => ModelOption[]
@@ -230,6 +259,10 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       sessions: [],
       currentSessionId: null,
+      projects: [],
+      currentProjectId: null,
+      projectFilesOpen: false,
+      fileTree: [],
       teams: [],
       settings: defaultSettings,
       remoteModels: [],
@@ -420,6 +453,51 @@ export const useAppStore = create<AppState>()(
         }))
       },
 
+      // Projects
+      addProject: (name: string, projectPath: string) => {
+        const id = crypto.randomUUID()
+        set((state) => ({
+          projects: [...state.projects, { id, name, path: projectPath, sessions: [], createdAt: Date.now() }],
+          currentProjectId: id,
+          projectFilesOpen: true,
+        }))
+        return id
+      },
+
+      removeProject: (id: string) => {
+        set((state) => ({
+          projects: state.projects.filter((p) => p.id !== id),
+          currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
+          projectFilesOpen: state.currentProjectId === id ? false : state.projectFilesOpen,
+          fileTree: state.currentProjectId === id ? [] : state.fileTree,
+        }))
+      },
+
+      setCurrentProject: (id: string | null) => {
+        set({ currentProjectId: id, fileTree: [] })
+        if (id) {
+          set({ projectFilesOpen: true })
+        }
+      },
+
+      toggleProjectFiles: () => {
+        set((state) => ({ projectFilesOpen: !state.projectFilesOpen }))
+      },
+
+      setFileTree: (tree: FileTreeNode[]) => {
+        set({ fileTree: tree })
+      },
+
+      linkSessionToProject: (projectId: string, sessionId: string) => {
+        set((state) => ({
+          projects: state.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, sessions: [...new Set([...p.sessions, sessionId])] }
+              : p
+          )
+        }))
+      },
+
       // Dynamic config: fetch models & agents from backend API
       fetchRemoteConfig: async () => {
         const state = get()
@@ -504,6 +582,8 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
+        projects: state.projects,
+        currentProjectId: state.currentProjectId,
         teams: state.teams,
         settings: state.settings,
       })

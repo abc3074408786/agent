@@ -1,3 +1,10 @@
+export interface FileTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileTreeNode[]
+}
+
 export interface ElectronAPI {
   agent: {
     start: (port?: number) => Promise<{ success: boolean; port: number; error?: string }>
@@ -19,6 +26,11 @@ export interface ElectronAPI {
   }
   app: {
     getDataPath: () => Promise<string>
+  }
+  project: {
+    openFolder: () => Promise<{ path: string } | null>
+    readDir: (dirPath: string) => Promise<FileTreeNode[]>
+    readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   }
 }
 
