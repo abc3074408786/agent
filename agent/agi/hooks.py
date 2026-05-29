@@ -1,11 +1,15 @@
 """
 AGI Hooks for LangGraph Integration.
 
-Wraps the standard ReAct loop with AGI cognitive hooks:
-- pre_tool:  Before tool execution → predictions, warnings, advice
-- post_tool: After tool execution → learn, update world model, self-evaluate
-- pre_agent: Before LLM call → inject AGI context into messages
-- should_ask_human: Override to pause when confidence is low
+Unified interface: AGI Hooks (LangGraph adapter) + BrainOS (cognitive engine).
+
+Architecture:
+    LangGraph ReAct Loop
+        ↓ calls
+    AGIHooks (this file) — interface layer
+        ↓ delegates to
+    BrainOS (agent/brain/) — 8 cognitive modules do the actual computation
+    AGICore (agent/agi/) — goal engine, world model, transfer, evaluator
 
 Usage:
     from agent.agi.hooks import AGIHooks
@@ -25,31 +29,35 @@ from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolNode
 
 from agent.agi.core import AGICore
+from agent.brain.core import BrainOS
 from agent.graph.state import AgentState
 
 
 class AGIHooks:
     """
-    LangGraph integration hooks for AGI cognitive modules.
+    Unified LangGraph integration: BrainOS (cognition) + AGICore (learning).
     
-    Intercepts the ReAct loop at key points to:
-    1. Inject AGI advice into LLM context
-    2. Learn from every tool execution
-    3. Update world model with observed cause-effects
-    4. Track confidence and request human help when needed
+    Pipeline for every action:
+    1. BrainOS.process() → filter, risk check, memory recall, predict, habits
+    2. AGICore.pre_action() → world model predictions, transfer advice
+    3. Merge into LLM context
+    4. [Tool executes]
+    5. BrainOS.feedback() → update all 8 brain modules
+    6. AGICore.post_action() → update world model, self-evaluate, consolidate
     """
 
     def __init__(self, project_dir: str = ".", enabled: bool = True):
         self.enabled = enabled
         self.agi = AGICore(project_dir=project_dir)
+        self.brain = BrainOS(project_id="main", data_dir=f"{project_dir}/.brain")
         self._pending_tool_calls: dict[str, dict] = {}  # tool_call_id → context
 
     # ─── Agent Node Hook (pre-LLM) ───
 
     def enhance_messages(self, state: AgentState) -> list[BaseMessage]:
         """
-        Inject AGI context into messages before LLM call.
-        Adds a system message with predictions and advice.
+        Full cognitive pipeline before LLM call:
+        BrainOS.process() + AGICore.pre_action() → inject into messages.
         """
         if not self.enabled:
             return list(state["messages"])
@@ -66,34 +74,69 @@ class AGIHooks:
         if not last_user:
             return messages
 
-        # Get AGI advice
-        advice = self.agi.pre_action("respond", {"user_input": last_user[:200]})
+        # ══════ BrainOS: Full Cognitive Pipeline ══════
+        brain_result = self.brain.process(last_user[:300], context={"iteration": state.get("iteration", 0)})
 
-        # Build context injection
-        agi_context_parts = []
+        # If brain blocks it (amygdala risk too high), add strong warning
+        if brain_result.get("blocked"):
+            messages.append(SystemMessage(content=(
+                f"[⚠️ 紧急中断] 杏仁核风险评估: 危险操作被阻止\n"
+                f"原因: {'; '.join(brain_result.get('reason', []))}\n"
+                f"建议: 请确认用户真的想要执行此操作"
+            )))
+            return messages
 
-        if advice.get("warnings"):
-            agi_context_parts.append("⚠️ 注意: " + "; ".join(advice["warnings"]))
+        # ══════ AGICore: World Model + Transfer ══════
+        agi_advice = self.agi.pre_action("respond", {"user_input": last_user[:200]})
 
-        if advice.get("patterns"):
-            top_patterns = advice["patterns"][:2]
-            for p in top_patterns:
-                agi_context_parts.append(f"💡 经验: {p['rule']} (信心:{p['confidence']:.0%})")
+        # ══════ Merge All Cognitive Signals ══════
+        context_parts = []
 
-        if advice.get("predictions"):
-            top_pred = advice["predictions"][0]
-            agi_context_parts.append(f"🔮 预测: {top_pred['effect']} (概率:{top_pred['confidence']:.0%})")
+        # BrainOS signals
+        if brain_result.get("memories"):
+            context_parts.append(f"🧠 记忆: {'; '.join(brain_result['memories'][:2])}")
 
-        if advice.get("transfer_advice"):
-            agi_context_parts.append(f"🔄 跨域建议: {advice['transfer_advice'][0]}")
+        if brain_result.get("prediction", {}).get("confidence", 0) > 0.4:
+            pred = brain_result["prediction"]
+            context_parts.append(f"🔮 小脑预测: {pred.get('predicted_outcome', '?')} (信心:{pred.get('confidence', 0):.0%})")
 
-        # Only inject if we have something useful
-        if agi_context_parts:
+        if brain_result.get("habit"):
+            habit = brain_result["habit"]
+            if habit.get("is_automatic"):
+                context_parts.append(f"⚡ 习惯(自动): {habit['routine']} (强度:{habit['strength']:.0%})")
+            elif habit.get("strength", 0) > 0.4:
+                context_parts.append(f"💡 习惯建议: {habit['routine']}")
+
+        if brain_result.get("risk", {}).get("risk_level", 0) > 0.3:
+            risk = brain_result["risk"]
+            context_parts.append(f"⚠️ 风险({risk['risk_level']:.0%}): {'; '.join(risk.get('reasons', []))}")
+
+        if brain_result.get("imitations"):
+            top_imit = brain_result["imitations"][0]
+            context_parts.append(f"👁️ 模仿建议: {top_imit['action']}")
+
+        # AGICore signals
+        if agi_advice.get("warnings"):
+            context_parts.append("⚠️ " + "; ".join(agi_advice["warnings"]))
+
+        if agi_advice.get("patterns"):
+            for p in agi_advice["patterns"][:1]:
+                context_parts.append(f"📊 经验模式: {p['rule']} (信心:{p['confidence']:.0%})")
+
+        if agi_advice.get("transfer_advice"):
+            context_parts.append(f"🔄 跨域: {agi_advice['transfer_advice'][0]}")
+
+        # Confidence check
+        if agi_advice.get("should_ask_human"):
+            context_parts.append("❓ 信心不足，建议确认后再执行")
+
+        # Only inject if we have useful context
+        if context_parts:
             agi_msg = SystemMessage(content=(
-                "[AGI 认知模块提示]\n" + "\n".join(agi_context_parts) +
-                "\n[以上信息仅供参考，请结合实际情况判断]"
+                "[认知模块 - BrainOS + AGI]\n" +
+                "\n".join(context_parts) +
+                "\n[以上为内部认知信号，请参考但自主判断]"
             ))
-            # Insert after first system message
             insert_idx = 1 if messages and isinstance(messages[0], SystemMessage) else 0
             messages.insert(insert_idx, agi_msg)
 
@@ -131,7 +174,11 @@ class AGIHooks:
         return {"agi_advice": advice if hasattr(last_msg, "tool_calls") and last_msg.tool_calls else None}
 
     def post_tool(self, state: AgentState) -> Dict[str, Any]:
-        """Called after tools execute. Learns from results."""
+        """
+        After tool execution: both BrainOS and AGICore learn.
+        BrainOS: updates 8 brain modules (memory, habits, predictions, risk)
+        AGICore: updates world model, evaluates, consolidates patterns
+        """
         if not self.enabled:
             return {}
 
@@ -153,15 +200,31 @@ class AGIHooks:
                         err in content.lower()
                         for err in ["error", "failed", "exception", "traceback", "permission denied"]
                     )
+                    reward = 1.0 if success else -0.5
+                    domain = self._infer_domain(pending["name"])
 
-                    # Post-action learning
-                    report = self.agi.post_action(
+                    # ══════ BrainOS: feedback to all 8 modules ══════
+                    brain_report = self.brain.feedback(
+                        action=pending["name"],
+                        result=content[:300],
+                        reward=reward,
+                    )
+
+                    # ══════ AGICore: world model + evaluator + learner ══════
+                    agi_report = self.agi.post_action(
                         action=pending["name"],
                         context=pending["args"],
                         result=content[:500],
                         success=success,
-                        domain=self._infer_domain(pending["name"]),
+                        domain=domain,
                     )
+
+                    report = {
+                        "brain": brain_report,
+                        "agi": agi_report,
+                        "success": success,
+                        "duration_ms": int(duration * 1000),
+                    }
 
                 break  # only process the most recent tool result
 
@@ -195,8 +258,8 @@ class AGIHooks:
 
     def should_pause(self, state: AgentState) -> bool:
         """
-        Check if AGI modules recommend pausing for human confirmation.
-        Can be used as a conditional edge in the graph.
+        Check if cognitive modules recommend pausing for human confirmation.
+        Checks both: AGI evaluator confidence + BrainOS amygdala risk.
         """
         if not self.enabled:
             return False
@@ -207,8 +270,16 @@ class AGIHooks:
         if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
             for tc in last_msg.tool_calls:
                 tool_name = tc.get("name", "")
+                tool_args = tc.get("args", {})
                 domain = self._infer_domain(tool_name)
+
+                # Check AGI confidence
                 if self.agi.evaluator.should_ask_human(domain):
+                    return True
+
+                # Check BrainOS amygdala
+                risk = self.brain.amygdala.assess_risk(tool_name, str(tool_args))
+                if risk["should_interrupt"]:
                     return True
 
         return False
@@ -253,5 +324,14 @@ class AGIHooks:
         return domain_map.get(tool_name, "general")
 
     def get_stats(self) -> dict:
-        """Get AGI stats for monitoring."""
-        return self.agi.stats()
+        """Get unified stats from both BrainOS and AGICore."""
+        return {
+            "brain": self.brain.stats(),
+            "agi": self.agi.stats(),
+            "enabled": self.enabled,
+            "pending_tools": len(self._pending_tool_calls),
+        }
+
+    def daydream(self) -> dict:
+        """Idle-time processing: call during downtime for creativity + consolidation."""
+        return self.brain.daydream()
