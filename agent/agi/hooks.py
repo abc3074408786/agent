@@ -32,6 +32,7 @@ from agent.agi.core import AGICore
 from agent.brain.core import BrainOS
 from agent.agi.self_evaluator.auto_verifier import AutoVerifier
 from agent.agi.metacognition import MetacognitionEngine
+from agent.agi.self_model import SelfModel
 from agent.graph.state import AgentState
 
 
@@ -54,6 +55,7 @@ class AGIHooks:
         self.brain = BrainOS(project_id="main", data_dir=f"{project_dir}/.brain")
         self.verifier = AutoVerifier(workspace=project_dir)
         self.metacognition = MetacognitionEngine()
+        self.self_model = SelfModel(data_dir=f"{project_dir}/.agi/self_model")
         self._pending_tool_calls: dict[str, dict] = {}
         self._actions_taken: list[str] = []
         self._results: list[dict] = []
@@ -170,6 +172,11 @@ class AGIHooks:
 
         # Only inject if we have useful context
         if context_parts:
+            # Add self-model as the first line
+            self_desc = self.self_model.to_context_string()
+            if self_desc:
+                context_parts.insert(0, f"🪞 自我: {self_desc}")
+
             agi_msg = SystemMessage(content=(
                 "[认知模块 - BrainOS + AGI]\n" +
                 "\n".join(context_parts) +
@@ -331,6 +338,9 @@ class AGIHooks:
                     self._actions_taken.append(pending["name"])
                     self._results.append({"success": success, "result": content[:100]})
                     self.metacognition.record_result(success)
+
+                    # Update self-model (zero cost, pure stats)
+                    self.self_model.record_action(domain, pending["name"], success)
 
                     # Save rollback point before risky ops
                     if pending["name"] in ("file_write", "file_edit", "bash_execute"):
