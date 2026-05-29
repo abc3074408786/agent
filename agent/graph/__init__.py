@@ -32,6 +32,20 @@ from agent.observability import get_logger, get_tracer
 logger = get_logger("graph")
 tracer = get_tracer("graph")
 
+# AGI integration (optional)
+_agi_hooks = None
+
+def get_agi_hooks():
+    """Get or create AGI hooks singleton."""
+    global _agi_hooks
+    if _agi_hooks is None:
+        try:
+            from agent.agi.hooks import AGIHooks
+            _agi_hooks = AGIHooks(enabled=True)
+        except ImportError:
+            _agi_hooks = None
+    return _agi_hooks
+
 
 # ============ 默认提示模板 ============
 
@@ -51,14 +65,10 @@ DEFAULT_SYSTEM_PROMPT = """你是一个智能助手，可以使用各种工具�
 def create_agent_node(
     llm: BaseChatModel,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+    enable_agi: bool = True,
 ) -> Callable:
     """
-    创建 Agent 节点函数
-    
-    Agent 节点负责:
-    - 接收用户输入和历史消息
-    - 调用 LLM 生成响应
-    - 决定是否需要调用工具
+    创建 Agent 节点函数（支持 AGI 认知增强）
     """
     
     @tracer.trace("agent_node")
@@ -69,6 +79,11 @@ def create_agent_node(
         # 构建提示
         if not messages or not isinstance(messages[0], SystemMessage):
             messages = [SystemMessage(content=system_prompt)] + list(messages)
+        
+        # AGI Enhancement: inject cognitive advice into context
+        agi = get_agi_hooks()
+        if enable_agi and agi:
+            messages = agi.enhance_messages({**state, "messages": messages})
         
         logger.debug(
             f"Agent node processing",
@@ -152,6 +167,7 @@ class ReActGraphBuilder:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         checkpointer: Optional[BaseCheckpointSaver] = None,
         max_iterations: int = 10,
+        enable_agi: bool = True,
     ):
         """
         初始化图构建器
@@ -162,12 +178,14 @@ class ReActGraphBuilder:
             system_prompt: 系统提示
             checkpointer: 检查点保存器 (用于持久化)
             max_iterations: 最大迭代次数
+            enable_agi: 是否启用 AGI 认知增强
         """
         self.llm = llm
         self.tools = list(tools) if tools else []
         self.system_prompt = system_prompt
         self.checkpointer = checkpointer
         self.max_iterations = max_iterations
+        self.enable_agi = enable_agi
         
         # 如果有工具，绑定到 LLM
         if self.tools:
@@ -218,6 +236,7 @@ class ReActGraphBuilder:
         agent_node = create_agent_node(
             self.llm_with_tools,
             self.system_prompt,
+            enable_agi=self.enable_agi,
         )
         
         # 添加节点
@@ -225,7 +244,14 @@ class ReActGraphBuilder:
         
         if self.tools:
             tool_node = create_tool_node(self.tools)
-            workflow.add_node("tools", tool_node)
+            
+            # AGI Enhancement: wrap tool node with learning hooks
+            agi = get_agi_hooks()
+            if self.enable_agi and agi:
+                enhanced_node = agi.wrap_tool_node(tool_node)
+                workflow.add_node("tools", enhanced_node)
+            else:
+                workflow.add_node("tools", tool_node)
             
             # 添加边
             workflow.add_conditional_edges(

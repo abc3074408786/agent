@@ -19,3 +19,8 @@ class AgentState(TypedDict):
     trace_id: str
     current_provider: Optional[str]
     current_model: Optional[str]
+    # AGI cognitive state
+    agi_advice: Optional[dict]  # pre_action advice from AGI modules
+    agi_report: Optional[dict]  # post_action learning report
+    iteration: Optional[int]
+    max_iterations: Optional[int]
