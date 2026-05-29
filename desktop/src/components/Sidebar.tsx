@@ -44,19 +44,26 @@ export default function Sidebar() {
 
   // Open folder dialog via Electron IPC
   const handleOpenFolder = async () => {
+    let projectId: string | null = null
     try {
       const result = await window.electronAPI?.project?.openFolder()
       if (result && result.path) {
         const name = result.path.split(/[\\/]/).pop() || 'project'
-        addProject(name, result.path)
+        projectId = addProject(name, result.path)
       }
     } catch {
       // Fallback: prompt for path (when not in Electron)
       const folderPath = prompt('输入项目路径：')
       if (folderPath) {
         const name = folderPath.split(/[\\/]/).pop() || 'project'
-        addProject(name, folderPath)
+        projectId = addProject(name, folderPath)
       }
+    }
+    // 创建项目后直接进入项目对话
+    if (projectId) {
+      const sessionId = createSession()
+      useAppStore.getState().linkSessionToProject(projectId, sessionId)
+      navigate(`/chat/${sessionId}`)
     }
   }
 
@@ -66,6 +73,20 @@ export default function Sidebar() {
     const project = projects.find(p => p.id === projectId)
     if (project) {
       loadProjectFiles(project.path)
+      // 如果项目有关联的对话，进入最近的那个；否则创建新对话
+      if (project.sessions.length > 0) {
+        const lastSessionId = project.sessions[project.sessions.length - 1]
+        const session = sessions.find(s => s.id === lastSessionId)
+        if (session) {
+          setCurrentSession(lastSessionId)
+          navigate(`/chat/${lastSessionId}`)
+          return
+        }
+      }
+      // 没有关联对话，创建一个新的
+      const sessionId = createSession()
+      useAppStore.getState().linkSessionToProject(projectId, sessionId)
+      navigate(`/chat/${sessionId}`)
     }
   }
 
