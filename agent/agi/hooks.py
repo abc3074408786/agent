@@ -145,24 +145,39 @@ class AGIHooks:
     # ─── Tool Node Hook (pre/post execution) ───
 
     def pre_tool(self, state: AgentState) -> Dict[str, Any]:
-        """Called before tools execute. Records pending tool calls."""
+        """Called before tools execute. Uses code_graph for impact analysis."""
         if not self.enabled:
             return {}
 
         messages = state["messages"]
         last_msg = messages[-1] if messages else None
+        advice = None
 
         if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
             for tc in last_msg.tool_calls:
                 tool_name = tc.get("name", "")
                 tool_args = tc.get("args", {})
 
-                # Get AGI advice for this specific tool
+                # Get AGI + BrainOS advice
                 advice = self.agi.pre_action(
                     action=tool_name,
                     context=tool_args,
                     domain=self._infer_domain(tool_name),
                 )
+
+                # ══════ Code Graph: Impact Analysis before file changes ══════
+                if tool_name in ("file_write", "file_edit"):
+                    impact = self._analyze_code_impact(tool_args)
+                    if impact:
+                        advice["code_impact"] = impact
+                        # Feed impact into world model
+                        if impact.get("affected_files"):
+                            self.agi.world_model.observe(
+                                f"modify:{impact.get('symbol', 'unknown')}",
+                                tool_args,
+                                f"affects {len(impact['affected_files'])} files",
+                                conditions=[f"file={tool_args.get('path', '')}"],
+                            )
 
                 self._pending_tool_calls[tc.get("id", "")] = {
                     "name": tool_name,
@@ -171,7 +186,42 @@ class AGIHooks:
                     "start_time": time.time(),
                 }
 
-        return {"agi_advice": advice if hasattr(last_msg, "tool_calls") and last_msg.tool_calls else None}
+        return {"agi_advice": advice}
+
+    def _analyze_code_impact(self, tool_args: dict) -> Optional[dict]:
+        """Use code_graph to analyze what a file modification will affect."""
+        try:
+            from agent.agent.code_graph import CodeGraphAnalyzer, _get_analyzer
+
+            filepath = tool_args.get("path", "")
+            if not filepath or not filepath.endswith(".py"):
+                return None
+
+            analyzer = _get_analyzer()
+            # If graph is empty, try to analyze the project
+            if not analyzer.graph.nodes:
+                return None
+
+            # Get the module name from filepath
+            module_name = filepath.replace("/", ".").replace("\\", ".").replace(".py", "").split(".")[-1]
+
+            # Find affected code
+            impact = analyzer.get_impact(module_name)
+            affected_files = impact.get("files", set())
+            affected_symbols = impact.get("symbols", set())
+
+            if not affected_files and not affected_symbols:
+                return None
+
+            return {
+                "symbol": module_name,
+                "affected_files": list(affected_files)[:10],
+                "affected_symbols": list(affected_symbols)[:10],
+                "total_affected": len(affected_files) + len(affected_symbols),
+                "risk_note": f"修改 {module_name} 会影响 {len(affected_files)} 个文件、{len(affected_symbols)} 个符号",
+            }
+        except Exception:
+            return None
 
     def post_tool(self, state: AgentState) -> Dict[str, Any]:
         """
