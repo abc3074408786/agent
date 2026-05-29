@@ -31,6 +31,7 @@ from langgraph.prebuilt import ToolNode
 from agent.agi.core import AGICore
 from agent.brain.core import BrainOS
 from agent.agi.self_evaluator.auto_verifier import AutoVerifier
+from agent.agi.metacognition import MetacognitionEngine
 from agent.graph.state import AgentState
 
 
@@ -52,7 +53,11 @@ class AGIHooks:
         self.agi = AGICore(project_dir=project_dir)
         self.brain = BrainOS(project_id="main", data_dir=f"{project_dir}/.brain")
         self.verifier = AutoVerifier(workspace=project_dir)
-        self._pending_tool_calls: dict[str, dict] = {}  # tool_call_id → context
+        self.metacognition = MetacognitionEngine()
+        self._pending_tool_calls: dict[str, dict] = {}
+        self._actions_taken: list[str] = []
+        self._results: list[dict] = []
+        self._current_goal: str = ""
 
     # ─── Agent Node Hook (pre-LLM) ───
 
@@ -75,6 +80,37 @@ class AGIHooks:
 
         if not last_user:
             return messages
+
+        # ══════ Metacognition: self-awareness checks ══════
+        meta_check = self.metacognition.pre_check(last_user[:200], context={"iteration": state.get("iteration", 0)})
+        
+        # If metacognition says don't proceed, add strong signal
+        if not meta_check["proceed"]:
+            if meta_check.get("questions"):
+                context_parts.append("❓ 信息不足，建议先问: " + "; ".join(meta_check["questions"][:2]))
+            if meta_check.get("warnings"):
+                context_parts.extend(["🚫 " + w for w in meta_check["warnings"]])
+
+        # Critical context (never forget)
+        critical = meta_check.get("critical", {})
+        if critical:
+            context_parts.append("📌 关键约束: " + "; ".join(f"{k}={v}" for k, v in list(critical.items())[:3]))
+
+        # Course correction check
+        if self.metacognition.should_rollback():
+            context_parts.append("⏪ 连续失败3次，建议回退到上一个正确状态，换一种方法")
+
+        # Completion check (if we have a goal)
+        if self._current_goal and self._actions_taken:
+            completion = self.metacognition.check_completion(self._current_goal, self._actions_taken, self._results)
+            if completion["done"]:
+                context_parts.append(f"✅ 目标可能已完成 (信心:{completion['confidence']:.0%})")
+            elif completion.get("remaining"):
+                context_parts.append(f"📋 未完成: {'; '.join(completion['remaining'])}")
+
+        # Track goal
+        if not self._current_goal:
+            self._current_goal = last_user[:100]
 
         # ══════ BrainOS: Full Cognitive Pipeline ══════
         brain_result = self.brain.process(last_user[:300], context={"iteration": state.get("iteration", 0)})
@@ -290,6 +326,18 @@ class AGIHooks:
                         "success": success,
                         "duration_ms": int(duration * 1000),
                     }
+
+                    # Track for metacognition
+                    self._actions_taken.append(pending["name"])
+                    self._results.append({"success": success, "result": content[:100]})
+                    self.metacognition.record_result(success)
+
+                    # Save rollback point before risky ops
+                    if pending["name"] in ("file_write", "file_edit", "bash_execute"):
+                        self.metacognition.save_rollback(
+                            f"{pending['name']}: {str(pending['args'])[:50]}",
+                            {"tool": pending["name"], "args": pending["args"]}
+                        )
 
                 break  # only process the most recent tool result
 
