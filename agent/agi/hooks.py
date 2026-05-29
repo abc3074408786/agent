@@ -30,6 +30,7 @@ from langgraph.prebuilt import ToolNode
 
 from agent.agi.core import AGICore
 from agent.brain.core import BrainOS
+from agent.agi.self_evaluator.auto_verifier import AutoVerifier
 from agent.graph.state import AgentState
 
 
@@ -50,6 +51,7 @@ class AGIHooks:
         self.enabled = enabled
         self.agi = AGICore(project_dir=project_dir)
         self.brain = BrainOS(project_id="main", data_dir=f"{project_dir}/.brain")
+        self.verifier = AutoVerifier(workspace=project_dir)
         self._pending_tool_calls: dict[str, dict] = {}  # tool_call_id → context
 
     # ─── Agent Node Hook (pre-LLM) ───
@@ -260,6 +262,18 @@ class AGIHooks:
                         reward=reward,
                     )
 
+                    # ══════ AutoVerifier: self-check after file changes ══════
+                    verification = None
+                    if pending["name"] in ("file_write", "file_edit") and pending["args"].get("path", "").endswith(".py"):
+                        verification = self.verifier.verify(
+                            pending["args"].get("path", ""),
+                            content[:500],
+                        )
+                        # Override reward based on verification
+                        if verification and not verification["passed"]:
+                            reward = -0.3  # downgrade reward
+                            success = False
+
                     # ══════ AGICore: world model + evaluator + learner ══════
                     agi_report = self.agi.post_action(
                         action=pending["name"],
@@ -272,6 +286,7 @@ class AGIHooks:
                     report = {
                         "brain": brain_report,
                         "agi": agi_report,
+                        "verification": verification,
                         "success": success,
                         "duration_ms": int(duration * 1000),
                     }
