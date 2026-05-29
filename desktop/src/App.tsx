@@ -11,6 +11,8 @@ import AutomationsPage from './pages/AutomationsPage'
 import TeamDevPage from './pages/TeamDevPage'
 import ExpertMarketplace from './pages/ExpertMarketplace'
 import SkillLibrary from './pages/SkillLibrary'
+import WorkflowList from './pages/WorkflowList'
+import WorkflowEditor from './pages/WorkflowEditor'
 
 export default function App() {
   return (
@@ -25,6 +27,9 @@ export default function App() {
               <Route path="/team" element={<TeamDevPage />} />
               <Route path="/experts" element={<ExpertMarketplace />} />
               <Route path="/skills" element={<SkillLibrary />} />
+              <Route path="/workflows" element={<WorkflowList />} />
+              <Route path="/workflows/new" element={<WorkflowEditor />} />
+              <Route path="/workflows/:id" element={<WorkflowEditor />} />
               <Route path="/automations" element={<AutomationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>

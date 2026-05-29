@@ -4,7 +4,7 @@ import {
   Plus, Search, Clock, ChevronDown, ChevronRight,
   MessageSquare, Settings, Trash2, FolderOpen, Users,
   PanelLeftClose, PanelLeftOpen, Bot, Zap, FolderPlus, X,
-  ShoppingBag, BookOpen
+  ShoppingBag, BookOpen, GitBranch
 } from 'lucide-react'
 import { useAppStore, Session } from '../store'
 import CreateTeamModal from './CreateTeamModal'
@@ -190,6 +190,14 @@ export default function Sidebar() {
           <BookOpen size={16} />
         </button>
 
+        <button
+          onClick={() => navigate('/workflows')}
+          className="p-2 text-text-tertiary hover:text-text-primary rounded-lg hover:bg-surface-tertiary mb-1 transition-colors"
+          title="工作流"
+        >
+          <GitBranch size={16} />
+        </button>
+
         <div className="flex-1" />
 
         <button
@@ -270,6 +278,19 @@ export default function Sidebar() {
         >
           <BookOpen size={15} className="text-text-tertiary" />
           <span>技能库</span>
+        </button>
+
+        {/* Workflows */}
+        <button
+          onClick={() => navigate('/workflows')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname.startsWith('/workflows')
+              ? 'bg-surface-tertiary text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-tertiary'
+          }`}
+        >
+          <GitBranch size={15} className="text-text-tertiary" />
+          <span>工作流</span>
         </button>
       </div>
 

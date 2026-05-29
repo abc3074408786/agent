@@ -77,6 +77,52 @@ export interface SkillTemplate {
   createdAt: number
 }
 
+// Workflow types (DAG-based visual editor)
+export type WorkflowNodeType = 'expert' | 'condition' | 'loop' | 'delay' | 'variable' | 'start' | 'end'
+
+export interface WorkflowNodeData {
+  label: string
+  type: WorkflowNodeType
+  // Expert node
+  expertId?: string
+  prompt?: string
+  // Condition node
+  condition?: string // expression to evaluate
+  // Loop node
+  loopCount?: number
+  loopCron?: string // cron for scheduled loops
+  // Delay node
+  delayMs?: number
+  // Variable node
+  variableName?: string
+  variableValue?: string
+  // Execution state (runtime)
+  status?: 'idle' | 'running' | 'completed' | 'failed' | 'skipped'
+  result?: string
+  error?: string
+  durationMs?: number
+}
+
+export interface WorkflowEdgeData {
+  label?: string
+  condition?: 'true' | 'false' | 'default' // for condition branches
+}
+
+export interface Workflow {
+  id: string
+  name: string
+  description: string
+  icon: string
+  // React Flow serialized state
+  nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: WorkflowNodeData }>
+  edges: Array<{ id: string; source: string; target: string; sourceHandle?: string; data?: WorkflowEdgeData }>
+  // Metadata
+  category: ExpertCategory
+  autowork?: { enabled: boolean; cron?: string }
+  createdAt: number
+  updatedAt: number
+}
+
 // Project types
 export interface FileTreeNode {
   name: string
@@ -224,6 +270,7 @@ interface AppState {
   experts: Expert[]
   hiredExpertIds: string[]
   skillTemplates: SkillTemplate[]
+  workflows: Workflow[]
   // Teams
   teams: Team[]
   // Settings
@@ -284,6 +331,10 @@ interface AppState {
   removeSkillTemplate: (id: string) => void
   updateSkillTemplate: (id: string, partial: Partial<SkillTemplate>) => void
   getHiredExperts: () => Expert[]
+  // Actions: Workflows
+  saveWorkflow: (workflow: Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>) => string
+  updateWorkflow: (id: string, partial: Partial<Workflow>) => void
+  removeWorkflow: (id: string) => void
   // Actions: Dynamic config
   fetchRemoteConfig: () => Promise<void>
   fetchExperts: () => Promise<void>
@@ -379,6 +430,7 @@ export const useAppStore = create<AppState>()(
       experts: BUILTIN_EXPERTS,
       hiredExpertIds: [],
       skillTemplates: [],
+      workflows: [],
       teams: [],
       settings: defaultSettings,
       remoteModels: [],
@@ -669,6 +721,30 @@ export const useAppStore = create<AppState>()(
         return state.experts.filter((e) => state.hiredExpertIds.includes(e.id))
       },
 
+      // Workflows
+      saveWorkflow: (workflow: Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>) => {
+        const id = crypto.randomUUID()
+        const now = Date.now()
+        set((state) => ({
+          workflows: [...state.workflows, { ...workflow, id, createdAt: now, updatedAt: now }]
+        }))
+        return id
+      },
+
+      updateWorkflow: (id: string, partial: Partial<Workflow>) => {
+        set((state) => ({
+          workflows: state.workflows.map((w) =>
+            w.id === id ? { ...w, ...partial, updatedAt: Date.now() } : w
+          )
+        }))
+      },
+
+      removeWorkflow: (id: string) => {
+        set((state) => ({
+          workflows: state.workflows.filter((w) => w.id !== id)
+        }))
+      },
+
       // Dynamic config: fetch models & agents from backend API
       fetchRemoteConfig: async () => {
         const state = get()
@@ -850,6 +926,7 @@ export const useAppStore = create<AppState>()(
         currentProjectId: state.currentProjectId,
         hiredExpertIds: state.hiredExpertIds,
         skillTemplates: state.skillTemplates,
+        workflows: state.workflows,
         teams: state.teams,
         settings: state.settings,
       })
