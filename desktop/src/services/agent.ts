@@ -324,5 +324,86 @@ export const agentService = {
     } catch {
       return []
     }
+  },
+
+  /**
+   * 获取后端专家列表（优先 /experts，降级 /skills）
+   */
+  async getExperts(): Promise<Array<{
+    id: string; name: string; description: string; icon?: string;
+    category?: string; capabilities?: string[]; tools?: string[];
+    system_prompt?: string; tags?: string[]; model?: string
+  }>> {
+    const baseUrl = getBaseUrl()
+    if (!baseUrl) return []
+
+    // Try /experts endpoint first
+    try {
+      const response = await fetch(`${baseUrl}/experts`, {
+        method: 'GET',
+        headers: getHeaders(),
+        signal: AbortSignal.timeout(5000)
+      })
+      if (response.ok) {
+        const data = await response.json()
+        return data.experts || data || []
+      }
+    } catch { /* try fallback */ }
+
+    // Fallback: /skills endpoint (convert skills to expert format)
+    try {
+      const response = await fetch(`${baseUrl}/skills`, {
+        method: 'GET',
+        headers: getHeaders(),
+        signal: AbortSignal.timeout(5000)
+      })
+      if (!response.ok) return []
+      const data = await response.json()
+      const skills = data.skills || data || []
+
+      // If skills are strings, convert to objects
+      if (Array.isArray(skills) && skills.length > 0) {
+        if (typeof skills[0] === 'string') {
+          return skills.map((name: string) => ({
+            id: name,
+            name,
+            description: `${name} 技能`,
+          }))
+        }
+        return skills
+      }
+      return []
+    } catch {
+      return []
+    }
+  },
+
+  /**
+   * 从外部市场获取专家列表
+   */
+  async getMarketplaceExperts(
+    marketplaceUrl: string,
+    marketplaceKey?: string
+  ): Promise<Array<{
+    id: string; name: string; description: string; icon?: string;
+    category?: string; capabilities?: string[]; system_prompt?: string
+  }>> {
+    if (!marketplaceUrl) return []
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (marketplaceKey) headers['Authorization'] = `Bearer ${marketplaceKey}`
+
+      const response = await fetch(`${marketplaceUrl}/experts`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(8000)
+      })
+      if (!response.ok) return []
+      const data = await response.json()
+      return data.experts || data.agents || data || []
+    } catch {
+      return []
+    }
   }
 }

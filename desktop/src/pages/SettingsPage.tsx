@@ -234,6 +234,37 @@ function ExtensionsSection({ settings, updateSettings }: SettingsProps) {
             </div>
           </div>
         </div>
+
+        {/* Expert Marketplace API */}
+        <div className="p-5 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-2xl">🛒</span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">外部专家市场</p>
+              <p className="text-xs text-text-tertiary">对接第三方专家/技能市场 API（如 OmniWork）</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <TextInput
+              label="市场 API 地址"
+              value={(settings as any).marketplaceUrl || ''}
+              onChange={(v) => updateSettings({ marketplaceUrl: v } as any)}
+              placeholder="https://api.omniwork.ai/v1"
+            />
+            <PasswordInput
+              label="API Key（可选）"
+              value={(settings as any).marketplaceKey || ''}
+              onChange={(v) => updateSettings({ marketplaceKey: v } as any)}
+              placeholder="输入市场 API Key"
+            />
+            <p className="text-[10px] text-text-tertiary leading-relaxed">
+              配置后，专家市场会自动从该地址拉取可用专家列表。支持返回格式：
+              <code className="px-1 rounded" style={{ background: 'var(--surface-tertiary)' }}>
+                {`{ "experts": [{ "id", "name", "description", "icon", "category", "capabilities", "system_prompt" }] }`}
+              </code>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )

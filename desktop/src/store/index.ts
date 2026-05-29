@@ -56,7 +56,7 @@ export interface Expert {
   model?: string // preferred model
   systemPrompt?: string
   tools?: string[]
-  source: 'builtin' | 'backend' | 'custom'
+  source: 'builtin' | 'backend' | 'custom' | 'marketplace'
 }
 
 // Skill template types
@@ -147,6 +147,9 @@ export interface Settings {
   permissionMode: 'default' | 'auto_edit' | 'full_auto'
   // Active CLI Agent (for ACP routing)
   activeCliAgent: 'none' | 'codex' | 'claude_code' | 'custom'
+  // External expert marketplace
+  marketplaceUrl: string
+  marketplaceKey: string
 }
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -283,6 +286,7 @@ interface AppState {
   getHiredExperts: () => Expert[]
   // Actions: Dynamic config
   fetchRemoteConfig: () => Promise<void>
+  fetchExperts: () => Promise<void>
   getModels: () => ModelOption[]
   getAgents: () => AgentOption[]
 }
@@ -305,6 +309,22 @@ const defaultSettings: Settings = {
   artifactsPanelOpen: false,
   permissionMode: 'default',
   activeCliAgent: 'none',
+  marketplaceUrl: '',
+  marketplaceKey: '',
+}
+
+// Helper: map backend category strings to ExpertCategory
+function mapCategory(cat: string): ExpertCategory {
+  const map: Record<string, ExpertCategory> = {
+    content: 'content', writing: 'content', copywriting: 'content',
+    development: 'development', dev: 'development', coding: 'development', frontend: 'development', backend: 'development', python: 'development',
+    business: 'business', analysis: 'business', finance: 'business',
+    design: 'design', ui: 'design', ux: 'design', visual: 'design',
+    media: 'media', video: 'media', audio: 'media', music: 'media',
+    data: 'data', database: 'data', analytics: 'data', ml: 'data',
+    operations: 'operations', ops: 'operations', devops: 'development', security: 'development',
+  }
+  return map[cat.toLowerCase()] || 'operations'
 }
 
 // Builtin experts (OmniWork-style)
@@ -725,6 +745,99 @@ export const useAppStore = create<AppState>()(
       getAgents: () => {
         const state = get()
         return state.remoteAgents.length > 0 ? state.remoteAgents : DEFAULT_AGENTS
+      },
+
+      // Fetch experts from all sources (backend + marketplace)
+      fetchExperts: async () => {
+        const state = get()
+        const baseUrl = state.settings.agentMode === 'local'
+          ? `http://127.0.0.1:${state.settings.agentLocalPort}`
+          : state.settings.agentRemoteUrl
+
+        let backendExperts: Expert[] = []
+        let marketplaceExperts: Expert[] = []
+
+        // Source 1: Backend /skills or /experts API
+        if (baseUrl) {
+          try {
+            // Try /experts first
+            let resp = await fetch(`${baseUrl}/experts`, { signal: AbortSignal.timeout(5000) })
+            if (!resp.ok) {
+              // Fallback to /skills
+              resp = await fetch(`${baseUrl}/skills`, { signal: AbortSignal.timeout(5000) })
+            }
+            if (resp.ok) {
+              const data = await resp.json()
+              const items = data.experts || data.skills || data || []
+              if (Array.isArray(items) && items.length > 0) {
+                backendExperts = items.map((item: any) => ({
+                  id: `backend-${item.id || item.name}`,
+                  name: item.name || item.id,
+                  icon: item.icon || '⊙',
+                  category: mapCategory(item.category || item.tags?.[0] || 'development'),
+                  description: item.description || '',
+                  capabilities: item.capabilities || item.tags || [],
+                  model: item.model || undefined,
+                  systemPrompt: item.system_prompt || item.systemPrompt || undefined,
+                  tools: item.tools || [],
+                  source: 'backend' as const,
+                }))
+              }
+            }
+          } catch { /* backend unavailable */ }
+        }
+
+        // Source 3: External marketplace API
+        const { marketplaceUrl, marketplaceKey } = state.settings
+        if (marketplaceUrl) {
+          try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+            if (marketplaceKey) headers['Authorization'] = `Bearer ${marketplaceKey}`
+
+            const resp = await fetch(`${marketplaceUrl}/experts`, {
+              headers,
+              signal: AbortSignal.timeout(8000)
+            })
+            if (resp.ok) {
+              const data = await resp.json()
+              const items = data.experts || data.agents || data || []
+              if (Array.isArray(items)) {
+                marketplaceExperts = items.map((item: any) => ({
+                  id: `market-${item.id || item.name}`,
+                  name: item.name || item.id,
+                  icon: item.icon || item.avatar || '🌐',
+                  category: mapCategory(item.category || 'operations'),
+                  description: item.description || '',
+                  capabilities: item.capabilities || item.skills || item.tags || [],
+                  model: item.model || undefined,
+                  systemPrompt: item.system_prompt || item.systemPrompt || item.prompt || undefined,
+                  tools: item.tools || [],
+                  source: 'marketplace' as const,
+                }))
+              }
+            }
+          } catch { /* marketplace unavailable */ }
+        }
+
+        // Merge: builtin + backend + custom (already in state) + marketplace
+        // Keep custom experts already created by user
+        const existingCustom = get().experts.filter(e => e.source === 'custom')
+        const merged = [
+          ...BUILTIN_EXPERTS,
+          ...backendExperts,
+          ...existingCustom,
+          ...marketplaceExperts,
+        ]
+
+        // Deduplicate by id
+        const seen = new Set<string>()
+        const deduped = merged.filter(e => {
+          if (seen.has(e.id)) return false
+          seen.add(e.id)
+          return true
+        })
+
+        set({ experts: deduped })
       },
     }),
     {

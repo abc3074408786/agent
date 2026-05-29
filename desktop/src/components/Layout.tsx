@@ -34,8 +34,9 @@ export default function Layout({ children }: LayoutProps) {
   // Fetch remote models/agents on mount and when connection settings change
   useEffect(() => {
     fetchRemoteConfig()
+    useAppStore.getState().fetchExperts()
     initCodexListeners()
-  }, [settings.agentMode, settings.agentLocalPort, settings.agentRemoteUrl])
+  }, [settings.agentMode, settings.agentLocalPort, settings.agentRemoteUrl, settings.marketplaceUrl])
 
   return (
     <div className="flex flex-col h-screen w-screen transition-theme" style={{ background: 'var(--surface-primary)' }}>
