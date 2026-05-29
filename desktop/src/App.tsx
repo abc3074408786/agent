@@ -9,6 +9,8 @@ import SettingsPage from './pages/SettingsPage'
 import MultiAgentPage from './pages/MultiAgentPage'
 import AutomationsPage from './pages/AutomationsPage'
 import TeamDevPage from './pages/TeamDevPage'
+import ExpertMarketplace from './pages/ExpertMarketplace'
+import SkillLibrary from './pages/SkillLibrary'
 
 export default function App() {
   return (
@@ -21,6 +23,8 @@ export default function App() {
               <Route path="/chat/:sessionId" element={<ChatPage />} />
               <Route path="/agents" element={<MultiAgentPage />} />
               <Route path="/team" element={<TeamDevPage />} />
+              <Route path="/experts" element={<ExpertMarketplace />} />
+              <Route path="/skills" element={<SkillLibrary />} />
               <Route path="/automations" element={<AutomationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>

@@ -43,6 +43,40 @@ export interface Session {
   updatedAt: number
 }
 
+// Expert types (OmniWork-style Expert Marketplace)
+export type ExpertCategory = 'content' | 'development' | 'business' | 'design' | 'media' | 'data' | 'operations'
+
+export interface Expert {
+  id: string
+  name: string
+  icon: string
+  category: ExpertCategory
+  description: string
+  capabilities: string[]
+  model?: string // preferred model
+  systemPrompt?: string
+  tools?: string[]
+  source: 'builtin' | 'backend' | 'custom'
+}
+
+// Skill template types
+export interface SkillStep {
+  expertId: string
+  prompt: string
+  dependsOn?: string[] // step IDs
+}
+
+export interface SkillTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string
+  steps: SkillStep[]
+  category: ExpertCategory
+  autowork?: { enabled: boolean; cron?: string } // for automation
+  createdAt: number
+}
+
 // Project types
 export interface FileTreeNode {
   name: string
@@ -183,6 +217,10 @@ interface AppState {
   currentProjectId: string | null
   projectFilesOpen: boolean
   fileTree: FileTreeNode[]
+  // Experts & Skills
+  experts: Expert[]
+  hiredExpertIds: string[]
+  skillTemplates: SkillTemplate[]
   // Teams
   teams: Team[]
   // Settings
@@ -234,6 +272,15 @@ interface AppState {
   toggleProjectFiles: () => void
   setFileTree: (tree: FileTreeNode[]) => void
   linkSessionToProject: (projectId: string, sessionId: string) => void
+  // Actions: Experts & Skills
+  hireExpert: (expertId: string) => void
+  fireExpert: (expertId: string) => void
+  addCustomExpert: (expert: Omit<Expert, 'id' | 'source'>) => string
+  removeCustomExpert: (id: string) => void
+  saveSkillTemplate: (template: Omit<SkillTemplate, 'id' | 'createdAt'>) => string
+  removeSkillTemplate: (id: string) => void
+  updateSkillTemplate: (id: string, partial: Partial<SkillTemplate>) => void
+  getHiredExperts: () => Expert[]
   // Actions: Dynamic config
   fetchRemoteConfig: () => Promise<void>
   getModels: () => ModelOption[]
@@ -260,6 +307,46 @@ const defaultSettings: Settings = {
   activeCliAgent: 'none',
 }
 
+// Builtin experts (OmniWork-style)
+export const BUILTIN_EXPERTS: Expert[] = [
+  // Content & Media
+  { id: 'content-strategist', name: '内容策略师', icon: '📝', category: 'content', description: '跨平台内容策划、选题规划、爆款结构分析', capabilities: ['热点追踪', '选题策划', '内容结构优化', '平台适配'], source: 'builtin' },
+  { id: 'video-director', name: '视频导演', icon: '🎬', category: 'media', description: '分镜拆解、视觉元素替换、BGM卡点同步', capabilities: ['分镜设计', '转场编排', '音画同步', '品牌元素适配'], source: 'builtin' },
+  { id: 'music-producer', name: '音乐制作人', icon: '🎵', category: 'media', description: '配乐创作、音效设计、节奏卡点', capabilities: ['BGM创作', '音效设计', '节奏分析', '风格匹配'], source: 'builtin' },
+  { id: 'copywriter', name: '文案大师', icon: '✍️', category: 'content', description: '广告文案、社媒文案、品牌故事', capabilities: ['标题优化', '故事叙述', '情感共鸣', '行动号召'], source: 'builtin' },
+  { id: 'trend-monitor', name: '热点监控器', icon: '📡', category: 'content', description: '实时追踪全网热点话题，生成趋势报告', capabilities: ['多平台爬取', '趋势分析', '热度预测', '报告生成'], source: 'builtin' },
+  // Development
+  { id: 'python-expert', name: 'Python 专家', icon: '🐍', category: 'development', description: 'Python 最佳实践、高级特性、性能优化', capabilities: ['代码重构', '性能优化', '架构设计', '测试策略'], tools: ['file_read', 'file_write', 'bash_execute'], source: 'builtin' },
+  { id: 'fullstack-dev', name: '全栈开发', icon: '🚀', category: 'development', description: '前端 + 后端 + DevOps 全链路开发', capabilities: ['React/Vue', 'Node/Python', 'Docker', 'CI/CD'], tools: ['file_read', 'file_write', 'bash_execute', 'git_commit'], source: 'builtin' },
+  { id: 'code-reviewer', name: '代码审查', icon: '🔍', category: 'development', description: '代码质量、安全漏洞、性能瓶颈审查', capabilities: ['Bug检测', '安全审计', '性能分析', '最佳实践'], tools: ['file_read', 'grep_search'], source: 'builtin' },
+  { id: 'devops-engineer', name: 'DevOps 工程师', icon: '⚙️', category: 'development', description: 'CI/CD、容器化、自动化部署', capabilities: ['Docker', 'Kubernetes', 'GitHub Actions', '监控'], tools: ['bash_execute', 'file_write'], source: 'builtin' },
+  // Business & Analysis
+  { id: 'business-analyst', name: '商业分析师', icon: '📊', category: 'business', description: '市场分析、竞品调研、商业计划书', capabilities: ['市场调研', '竞品分析', 'SWOT分析', '财务建模'], source: 'builtin' },
+  { id: 'growth-hacker', name: '增长黑客', icon: '📈', category: 'business', description: '用户增长策略、A/B测试、漏斗优化', capabilities: ['增长实验', '数据分析', '用户留存', '病毒传播'], source: 'builtin' },
+  { id: 'account-manager', name: '账号运营', icon: '👤', category: 'operations', description: '社媒账号运营、粉丝增长、互动优化', capabilities: ['内容日历', '互动策略', '数据复盘', '粉丝运营'], source: 'builtin' },
+  // Design
+  { id: 'ui-designer', name: 'UI 设计师', icon: '🎨', category: 'design', description: '界面设计、组件系统、视觉规范', capabilities: ['界面布局', '配色方案', '组件设计', '响应式'], source: 'builtin' },
+  { id: 'ppt-expert', name: 'PPT 设计专家', icon: '📑', category: 'design', description: '专业演示文稿设计、数据可视化', capabilities: ['排版设计', '数据图表', '动画效果', '品牌规范'], source: 'builtin' },
+  { id: 'visual-director', name: '视觉总监', icon: '👁️', category: 'design', description: '品牌视觉体系、广告创意、视觉叙事', capabilities: ['品牌设计', '广告创意', '视觉叙事', '素材管理'], source: 'builtin' },
+  // Data
+  { id: 'data-scientist', name: '数据科学家', icon: '🧮', category: 'data', description: '数据分析、建模、可视化', capabilities: ['统计分析', '机器学习', '数据可视化', 'A/B测试'], source: 'builtin' },
+  { id: 'web-scraper', name: '数据采集专家', icon: '🕷️', category: 'data', description: '全网数据采集、清洗、结构化', capabilities: ['网页爬虫', '数据清洗', 'API对接', '定时采集'], source: 'builtin' },
+  // Operations
+  { id: 'project-manager', name: '项目经理', icon: '📋', category: 'operations', description: '项目规划、任务分解、进度跟踪', capabilities: ['需求分析', '任务拆解', '风险管理', '交付管理'], source: 'builtin' },
+  { id: 'security-auditor', name: '安全审计', icon: '🛡️', category: 'development', description: '安全漏洞扫描、渗透测试建议', capabilities: ['漏洞扫描', '代码审计', '合规检查', '修复建议'], tools: ['file_read', 'grep_search', 'bash_execute'], source: 'builtin' },
+  { id: 'game-developer', name: '游戏开发', icon: '🎮', category: 'development', description: '游戏逻辑、场景叙事、交互设计', capabilities: ['游戏设计', '关卡规划', 'Unity/UE', '叙事驱动'], source: 'builtin' },
+]
+
+export const EXPERT_CATEGORIES: Record<ExpertCategory, { label: string; icon: string }> = {
+  content: { label: '内容创作', icon: '📝' },
+  development: { label: '开发工程', icon: '💻' },
+  business: { label: '商业分析', icon: '📊' },
+  design: { label: '设计制作', icon: '🎨' },
+  media: { label: '影音媒体', icon: '🎬' },
+  data: { label: '数据智能', icon: '🧮' },
+  operations: { label: '运营管理', icon: '📋' },
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -269,6 +356,9 @@ export const useAppStore = create<AppState>()(
       currentProjectId: null,
       projectFilesOpen: false,
       fileTree: [],
+      experts: BUILTIN_EXPERTS,
+      hiredExpertIds: [],
+      skillTemplates: [],
       teams: [],
       settings: defaultSettings,
       remoteModels: [],
@@ -504,6 +594,61 @@ export const useAppStore = create<AppState>()(
         }))
       },
 
+      // Experts & Skills
+      hireExpert: (expertId: string) => {
+        set((state) => ({
+          hiredExpertIds: [...new Set([...state.hiredExpertIds, expertId])]
+        }))
+      },
+
+      fireExpert: (expertId: string) => {
+        set((state) => ({
+          hiredExpertIds: state.hiredExpertIds.filter((id) => id !== expertId)
+        }))
+      },
+
+      addCustomExpert: (expert: Omit<Expert, 'id' | 'source'>) => {
+        const id = 'custom-' + crypto.randomUUID().slice(0, 8)
+        const newExpert: Expert = { ...expert, id, source: 'custom' }
+        set((state) => ({
+          experts: [...state.experts, newExpert],
+          hiredExpertIds: [...state.hiredExpertIds, id]
+        }))
+        return id
+      },
+
+      removeCustomExpert: (id: string) => {
+        set((state) => ({
+          experts: state.experts.filter((e) => e.id !== id),
+          hiredExpertIds: state.hiredExpertIds.filter((eid) => eid !== id)
+        }))
+      },
+
+      saveSkillTemplate: (template: Omit<SkillTemplate, 'id' | 'createdAt'>) => {
+        const id = crypto.randomUUID()
+        set((state) => ({
+          skillTemplates: [...state.skillTemplates, { ...template, id, createdAt: Date.now() }]
+        }))
+        return id
+      },
+
+      removeSkillTemplate: (id: string) => {
+        set((state) => ({
+          skillTemplates: state.skillTemplates.filter((s) => s.id !== id)
+        }))
+      },
+
+      updateSkillTemplate: (id: string, partial: Partial<SkillTemplate>) => {
+        set((state) => ({
+          skillTemplates: state.skillTemplates.map((s) => s.id === id ? { ...s, ...partial } : s)
+        }))
+      },
+
+      getHiredExperts: () => {
+        const state = get()
+        return state.experts.filter((e) => state.hiredExpertIds.includes(e.id))
+      },
+
       // Dynamic config: fetch models & agents from backend API
       fetchRemoteConfig: async () => {
         const state = get()
@@ -590,6 +735,8 @@ export const useAppStore = create<AppState>()(
         currentSessionId: state.currentSessionId,
         projects: state.projects,
         currentProjectId: state.currentProjectId,
+        hiredExpertIds: state.hiredExpertIds,
+        skillTemplates: state.skillTemplates,
         teams: state.teams,
         settings: state.settings,
       })

@@ -3,6 +3,7 @@ import {
   Target, Loader2, CheckCircle2, XCircle, Clock, Send, Square,
   Bot, ChevronDown, ChevronRight, Zap
 } from 'lucide-react'
+import { useAppStore } from '../store'
 
 // ============ 类型定义 ============
 
@@ -146,6 +147,9 @@ const MOCK_OUTPUTS: Record<string, string> = {
 // ============ 主组件 ============
 
 export default function TeamDevPage() {
+  const { getHiredExperts } = useAppStore()
+  const hiredExperts = getHiredExperts()
+
   const [status, setStatus] = useState<TeamStatus>('idle')
   const [plan, setPlan] = useState<TaskPlan | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -309,6 +313,17 @@ export default function TeamDevPage() {
             <div className="flex flex-col items-center justify-center h-full text-gray-300">
               <Zap size={32} className="mb-2" />
               <p className="text-xs">发送指令开始</p>
+              {hiredExperts.length > 0 && (
+                <div className="mt-3 flex flex-wrap justify-center gap-1">
+                  {hiredExperts.slice(0, 6).map(e => (
+                    <span key={e.id} className="text-sm" title={e.name}>{e.icon}</span>
+                  ))}
+                  {hiredExperts.length > 6 && <span className="text-[10px] text-text-tertiary">+{hiredExperts.length - 6}</span>}
+                </div>
+              )}
+              <p className="text-[10px] mt-1 text-text-tertiary">
+                {hiredExperts.length > 0 ? `${hiredExperts.length} 位专家待命` : '去专家市场雇佣团队成员'}
+              </p>
             </div>
           )}
         </div>

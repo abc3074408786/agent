@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus, Search, Clock, ChevronDown, ChevronRight,
   MessageSquare, Settings, Trash2, FolderOpen, Users,
-  PanelLeftClose, PanelLeftOpen, Bot, Zap, FolderPlus, X
+  PanelLeftClose, PanelLeftOpen, Bot, Zap, FolderPlus, X,
+  ShoppingBag, BookOpen
 } from 'lucide-react'
 import { useAppStore, Session } from '../store'
 import CreateTeamModal from './CreateTeamModal'
@@ -173,6 +174,22 @@ export default function Sidebar() {
           <Clock size={16} />
         </button>
 
+        <button
+          onClick={() => navigate('/experts')}
+          className="p-2 text-text-tertiary hover:text-text-primary rounded-lg hover:bg-surface-tertiary mb-1 transition-colors"
+          title="专家市场"
+        >
+          <ShoppingBag size={16} />
+        </button>
+
+        <button
+          onClick={() => navigate('/skills')}
+          className="p-2 text-text-tertiary hover:text-text-primary rounded-lg hover:bg-surface-tertiary mb-1 transition-colors"
+          title="技能库"
+        >
+          <BookOpen size={16} />
+        </button>
+
         <div className="flex-1" />
 
         <button
@@ -227,6 +244,32 @@ export default function Sidebar() {
         >
           <Clock size={15} className="text-text-tertiary" />
           <span>定时任务</span>
+        </button>
+
+        {/* Expert Market */}
+        <button
+          onClick={() => navigate('/experts')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname === '/experts'
+              ? 'bg-surface-tertiary text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-tertiary'
+          }`}
+        >
+          <ShoppingBag size={15} className="text-text-tertiary" />
+          <span>专家市场</span>
+        </button>
+
+        {/* Skill Library */}
+        <button
+          onClick={() => navigate('/skills')}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+            location.pathname === '/skills'
+              ? 'bg-surface-tertiary text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-tertiary'
+          }`}
+        >
+          <BookOpen size={15} className="text-text-tertiary" />
+          <span>技能库</span>
         </button>
       </div>
 
