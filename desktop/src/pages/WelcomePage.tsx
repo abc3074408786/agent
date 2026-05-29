@@ -2,12 +2,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store'
 import { Send, Plus, ChevronDown, Command } from 'lucide-react'
-import { ModelSelector, AgentSelector } from '../components/ModelSelector'
+import { ModelSelector, PermissionSelector } from '../components/ModelSelector'
 
 export default function WelcomePage() {
   const navigate = useNavigate()
   const { createSession, setPendingSessionId, setCommandPaletteOpen, getAgents } = useAppStore()
-  const [activeAgent, setActiveAgent] = useState('default')
   const [inputText, setInputText] = useState('')
 
   const agents = getAgents()
@@ -19,7 +18,7 @@ export default function WelcomePage() {
 
   const handleSendMessage = () => {
     if (!inputText.trim()) return
-    const sessionId = createSession(activeAgent !== 'default' ? activeAgent : undefined)
+    const sessionId = createSession()
     useAppStore.getState().addMessage(sessionId, {
       id: crypto.randomUUID(),
       role: 'user',
@@ -71,7 +70,7 @@ export default function WelcomePage() {
 
               <div className="flex items-center gap-2">
                 <ModelSelector />
-                <AgentSelector value={activeAgent} onChange={setActiveAgent} />
+                <PermissionSelector />
 
                 <button
                   onClick={handleSendMessage}

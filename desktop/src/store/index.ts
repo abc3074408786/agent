@@ -109,6 +109,8 @@ export interface Settings {
   sidebarWidth: number
   // Artifacts
   artifactsPanelOpen: boolean
+  // Permission mode
+  permissionMode: 'default' | 'auto_edit' | 'full_auto'
 }
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -252,6 +254,7 @@ const defaultSettings: Settings = {
   sidebarCollapsed: false,
   sidebarWidth: 240,
   artifactsPanelOpen: false,
+  permissionMode: 'default',
 }
 
 export const useAppStore = create<AppState>()(

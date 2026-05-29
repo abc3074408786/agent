@@ -110,20 +110,32 @@ function ModelItem({
   )
 }
 
-// Agent Selector
-interface AgentSelectorProps {
-  value?: string
-  onChange?: (agentId: string) => void
+// Permission/Authorization Mode Selector
+export type PermissionMode = 'default' | 'auto_edit' | 'full_auto'
+
+interface PermissionOption {
+  id: PermissionMode
+  name: string
+  description: string
+  icon: string
+}
+
+const PERMISSION_OPTIONS: PermissionOption[] = [
+  { id: 'default', name: '默认', description: '每次操作前询问确认', icon: '◎' },
+  { id: 'auto_edit', name: '自动编辑', description: '自动编辑文件，危险操作仍需确认', icon: '◉' },
+  { id: 'full_auto', name: '全自动', description: '完全自主执行，无需确认', icon: '●' },
+]
+
+interface PermissionSelectorProps {
   compact?: boolean
 }
 
-export function AgentSelector({ value, onChange, compact = false }: AgentSelectorProps) {
-  const { getAgents } = useAppStore()
+export function PermissionSelector({ compact = false }: PermissionSelectorProps) {
+  const { settings, updateSettings } = useAppStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const agents = getAgents()
-  const currentAgent = agents.find((a) => a.id === (value || 'default')) || agents[0]
+  const currentMode = PERMISSION_OPTIONS.find((p) => p.id === (settings as any).permissionMode) || PERMISSION_OPTIONS[0]
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -133,6 +145,11 @@ export function AgentSelector({ value, onChange, compact = false }: AgentSelecto
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  const selectMode = (mode: PermissionMode) => {
+    updateSettings({ permissionMode: mode } as any)
+    setOpen(false)
+  }
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -141,36 +158,36 @@ export function AgentSelector({ value, onChange, compact = false }: AgentSelecto
           border-border text-text-secondary hover:text-text-primary hover:border-text-tertiary
           bg-surface-primary"
       >
-        <span>{currentAgent.icon}</span>
-        {!compact && <span className="max-w-[80px] truncate">{currentAgent.name}</span>}
+        <span>{currentMode.icon}</span>
+        {!compact && <span>权限 · {currentMode.name}</span>}
         <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div
-          className="absolute bottom-full mb-2 right-0 w-64 rounded-xl border border-border overflow-hidden animate-scale-in z-50"
+          className="absolute bottom-full mb-2 right-0 w-56 rounded-xl border border-border overflow-hidden animate-scale-in z-50"
           style={{ background: 'var(--dropdown-bg)', boxShadow: 'var(--dropdown-shadow)' }}
         >
           <div className="px-3 py-2 border-b border-border">
-            <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">选择 Agent</p>
+            <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">授权模式</p>
           </div>
-          <div className="py-1 max-h-[300px] overflow-y-auto">
-            {agents.map((agent) => (
+          <div className="py-1">
+            {PERMISSION_OPTIONS.map((option) => (
               <button
-                key={agent.id}
-                onClick={() => { onChange?.(agent.id); setOpen(false) }}
+                key={option.id}
+                onClick={() => selectMode(option.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors ${
-                  agent.id === (value || 'default')
+                  option.id === currentMode.id
                     ? 'bg-primary-500/10 text-primary-500'
                     : 'text-text-primary hover:bg-surface-tertiary'
                 }`}
               >
-                <span className="text-lg">{agent.icon}</span>
+                <span className="text-sm">{option.icon}</span>
                 <div className="flex-1 text-left">
-                  <p className="text-xs font-medium">{agent.name}</p>
-                  <p className="text-[10px] text-text-tertiary">{agent.description}</p>
+                  <p className="text-xs font-medium">{option.name}</p>
+                  <p className="text-[10px] text-text-tertiary">{option.description}</p>
                 </div>
-                {agent.id === (value || 'default') && <Check size={14} className="text-primary-500" />}
+                {option.id === currentMode.id && <Check size={14} className="text-primary-500" />}
               </button>
             ))}
           </div>

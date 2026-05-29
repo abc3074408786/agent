@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAppStore, Message } from '../store'
 import MessageBubble from '../components/MessageBubble'
-import { ModelSelector, AgentSelector } from '../components/ModelSelector'
+import { ModelSelector, PermissionSelector } from '../components/ModelSelector'
 import { Bot, Send, Plus, Square, FileCode } from 'lucide-react'
 
 export default function ChatPage() {
@@ -226,7 +226,7 @@ export default function ChatPage() {
               {/* Right: Model + Agent + Send */}
               <div className="flex items-center gap-2">
                 <ModelSelector />
-                <AgentSelector value={session.agentType} />
+                <PermissionSelector />
 
                 <button
                   onClick={handleSend}
