@@ -1,27 +1,48 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
-// 消息类型
+// ============================================
+// Types
+// ============================================
+
 export interface Message {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   timestamp: number
   model?: string
+  toolCalls?: ToolCall[]
 }
 
-// 会话类型
+export interface ToolCall {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  status: 'running' | 'completed' | 'failed'
+  result?: string
+  durationMs?: number
+  startedAt: number
+}
+
+export interface Artifact {
+  id: string
+  filename: string
+  language: string
+  content: string
+  createdAt: number
+}
+
 export interface Session {
   id: string
   title: string
   messages: Message[]
   model: string
   agentType?: string
+  artifacts: Artifact[]
   createdAt: number
   updatedAt: number
 }
 
-// Agent 助手类型
 export interface AgentPreset {
   id: string
   name: string
@@ -30,7 +51,6 @@ export interface AgentPreset {
   color: string
 }
 
-// 团队成员类型
 export interface TeamMember {
   agentId: string
   agentName: string
@@ -39,7 +59,6 @@ export interface TeamMember {
   role: 'leader' | 'member'
 }
 
-// 团队类型
 export interface Team {
   id: string
   name: string
@@ -50,58 +69,125 @@ export interface Team {
   createdAt: number
 }
 
-// 设置类型
 export interface Settings {
-  // LLM 模式
+  // LLM mode
   llmMode: 'user_key' | 'proxy'
-  // 用户自带 Key
   openaiKey: string
   anthropicKey: string
-  // 代理模式
   proxyUrl: string
   proxyKey: string
-  // Agent 配置
+  // Agent
   agentMode: 'local' | 'remote'
   agentLocalPort: number
   agentRemoteUrl: string
-  // RAG 配置
+  // RAG
   ragUrl: string
   ragKey: string
-  // 默认模型
+  // Model
   defaultModel: string
-  // 主题
-  theme: 'light' | 'dark'
+  // Theme
+  theme: 'light' | 'dark' | 'system'
+  // Sidebar
+  sidebarCollapsed: boolean
+  sidebarWidth: number
+  // Artifacts
+  artifactsPanelOpen: boolean
 }
 
-// 全局状态
+export type ToastType = 'success' | 'error' | 'warning' | 'info'
+
+export interface Toast {
+  id: string
+  type: ToastType
+  title: string
+  description?: string
+  duration?: number
+}
+
+export type ConnectionStatus = 'connected' | 'disconnected' | 'checking'
+
+// Available models
+export interface ModelOption {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic' | 'custom'
+  icon: string
+}
+
+export const AVAILABLE_MODELS: ModelOption[] = [
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', icon: '●' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', icon: '○' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', icon: '●' },
+  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic', icon: '◈' },
+  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', provider: 'anthropic', icon: '◆' },
+  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', icon: '◇' },
+]
+
+// Available agents
+export interface AgentOption {
+  id: string
+  name: string
+  description: string
+  icon: string
+}
+
+export const AVAILABLE_AGENTS: AgentOption[] = [
+  { id: 'default', name: '默认 Agent', description: '通用智能助手', icon: '⊙' },
+  { id: 'code_reviewer', name: '代码审查', description: '代码审查 + 安全审计', icon: '🔍' },
+  { id: 'python_developer', name: 'Python 开发', description: 'Python 开发 + 测试', icon: '🐍' },
+  { id: 'full_stack', name: '全栈开发', description: '前端 + 后端 + DevOps', icon: '🚀' },
+  { id: 'architect', name: '架构师', description: '系统设计 + 数据库', icon: '🏗️' },
+  { id: 'bug_fixer', name: 'Bug 修复', description: '定位 + 修复 + 回归测试', icon: '🐛' },
+  { id: 'security_auditor', name: '安全审计', description: '漏洞扫描 + 修复建议', icon: '🛡️' },
+  { id: 'test_engineer', name: '测试工程师', description: '测试策略 + 自动化', icon: '🧪' },
+]
+
+// ============================================
+// Store
+// ============================================
+
 interface AppState {
-  // 会话
+  // Sessions
   sessions: Session[]
   currentSessionId: string | null
-  // 团队
+  // Teams
   teams: Team[]
-  // 设置
+  // Settings
   settings: Settings
-  // Agent 状态（不持久化）
+  // Runtime (not persisted)
   agentRunning: boolean
-  // 加载/生成状态（不持久化）
   isGenerating: boolean
   abortController: AbortController | null
-  // 待处理消息标记（从 WelcomePage 跳转时用）
   pendingSessionId: string | null
-  // 操作
+  connectionStatus: ConnectionStatus
+  toasts: Toast[]
+  commandPaletteOpen: boolean
+  // Actions: Sessions
   createSession: (agentType?: string) => string
   deleteSession: (id: string) => void
   setCurrentSession: (id: string) => void
   addMessage: (sessionId: string, message: Message) => void
   updateLastMessage: (sessionId: string, content: string) => void
   appendToLastMessage: (sessionId: string, chunk: string) => void
+  addToolCallToLastMessage: (sessionId: string, toolCall: ToolCall) => void
+  updateToolCall: (sessionId: string, toolCallId: string, update: Partial<ToolCall>) => void
+  addArtifact: (sessionId: string, artifact: Artifact) => void
+  // Actions: Settings
   updateSettings: (settings: Partial<Settings>) => void
+  toggleSidebar: () => void
+  toggleArtifactsPanel: () => void
+  // Actions: Runtime
   setAgentRunning: (running: boolean) => void
   setIsGenerating: (generating: boolean) => void
   setAbortController: (controller: AbortController | null) => void
   setPendingSessionId: (id: string | null) => void
-  // 团队操作
+  setConnectionStatus: (status: ConnectionStatus) => void
+  // Actions: Toast
+  addToast: (toast: Omit<Toast, 'id'>) => void
+  removeToast: (id: string) => void
+  // Actions: Command Palette
+  setCommandPaletteOpen: (open: boolean) => void
+  // Actions: Teams
   addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => string
   removeTeam: (id: string) => void
   updateTeam: (id: string, partial: Partial<Team>) => void
@@ -119,7 +205,10 @@ const defaultSettings: Settings = {
   ragUrl: '',
   ragKey: '',
   defaultModel: 'gpt-4o',
-  theme: 'light'
+  theme: 'dark',
+  sidebarCollapsed: false,
+  sidebarWidth: 240,
+  artifactsPanelOpen: false,
 }
 
 export const useAppStore = create<AppState>()(
@@ -133,6 +222,9 @@ export const useAppStore = create<AppState>()(
       isGenerating: false,
       abortController: null,
       pendingSessionId: null,
+      connectionStatus: 'disconnected',
+      toasts: [],
+      commandPaletteOpen: false,
 
       createSession: (agentType?: string) => {
         const id = crypto.randomUUID()
@@ -142,6 +234,7 @@ export const useAppStore = create<AppState>()(
           messages: [],
           model: get().settings.defaultModel,
           agentType,
+          artifacts: [],
           createdAt: Date.now(),
           updatedAt: Date.now()
         }
@@ -172,7 +265,6 @@ export const useAppStore = create<AppState>()(
               messages: [...s.messages, message],
               updatedAt: Date.now()
             }
-            // 用第一条用户消息作为标题
             if (message.role === 'user' && s.messages.length === 0) {
               updated.title = message.content.slice(0, 30)
             }
@@ -187,17 +279,13 @@ export const useAppStore = create<AppState>()(
             if (s.id !== sessionId) return s
             const messages = [...s.messages]
             if (messages.length > 0) {
-              messages[messages.length - 1] = {
-                ...messages[messages.length - 1],
-                content
-              }
+              messages[messages.length - 1] = { ...messages[messages.length - 1], content }
             }
             return { ...s, messages, updatedAt: Date.now() }
           })
         }))
       },
 
-      // 新增：追加模式更新（避免竞态）
       appendToLastMessage: (sessionId: string, chunk: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) => {
@@ -205,12 +293,55 @@ export const useAppStore = create<AppState>()(
             const messages = [...s.messages]
             if (messages.length > 0) {
               const lastMsg = messages[messages.length - 1]
-              messages[messages.length - 1] = {
-                ...lastMsg,
-                content: lastMsg.content + chunk
+              messages[messages.length - 1] = { ...lastMsg, content: lastMsg.content + chunk }
+            }
+            return { ...s, messages, updatedAt: Date.now() }
+          })
+        }))
+      },
+
+      addToolCallToLastMessage: (sessionId: string, toolCall: ToolCall) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const messages = [...s.messages]
+            if (messages.length > 0) {
+              const lastMsg = messages[messages.length - 1]
+              const toolCalls = [...(lastMsg.toolCalls || []), toolCall]
+              messages[messages.length - 1] = { ...lastMsg, toolCalls }
+            }
+            return { ...s, messages, updatedAt: Date.now() }
+          })
+        }))
+      },
+
+      updateToolCall: (sessionId: string, toolCallId: string, update: Partial<ToolCall>) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const messages = [...s.messages]
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const msg = messages[i]
+              if (msg.toolCalls) {
+                const idx = msg.toolCalls.findIndex((tc) => tc.id === toolCallId)
+                if (idx !== -1) {
+                  const toolCalls = [...msg.toolCalls]
+                  toolCalls[idx] = { ...toolCalls[idx], ...update }
+                  messages[i] = { ...msg, toolCalls }
+                  break
+                }
               }
             }
             return { ...s, messages, updatedAt: Date.now() }
+          })
+        }))
+      },
+
+      addArtifact: (sessionId: string, artifact: Artifact) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            return { ...s, artifacts: [...s.artifacts, artifact], updatedAt: Date.now() }
           })
         }))
       },
@@ -221,57 +352,66 @@ export const useAppStore = create<AppState>()(
         }))
       },
 
-      setAgentRunning: (running: boolean) => {
-        set({ agentRunning: running })
+      toggleSidebar: () => {
+        set((state) => ({
+          settings: { ...state.settings, sidebarCollapsed: !state.settings.sidebarCollapsed }
+        }))
       },
 
-      setIsGenerating: (generating: boolean) => {
-        set({ isGenerating: generating })
+      toggleArtifactsPanel: () => {
+        set((state) => ({
+          settings: { ...state.settings, artifactsPanelOpen: !state.settings.artifactsPanelOpen }
+        }))
       },
 
-      setAbortController: (controller: AbortController | null) => {
-        set({ abortController: controller })
+      setAgentRunning: (running: boolean) => set({ agentRunning: running }),
+      setIsGenerating: (generating: boolean) => set({ isGenerating: generating }),
+      setAbortController: (controller: AbortController | null) => set({ abortController: controller }),
+      setPendingSessionId: (id: string | null) => set({ pendingSessionId: id }),
+      setConnectionStatus: (status: ConnectionStatus) => set({ connectionStatus: status }),
+
+      addToast: (toast: Omit<Toast, 'id'>) => {
+        const id = crypto.randomUUID()
+        set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }))
+        // Auto-remove after duration
+        const duration = toast.duration || 4000
+        setTimeout(() => {
+          set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+        }, duration)
       },
 
-      setPendingSessionId: (id: string | null) => {
-        set({ pendingSessionId: id })
+      removeToast: (id: string) => {
+        set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
       },
 
-      // 团队操作
+      setCommandPaletteOpen: (open: boolean) => set({ commandPaletteOpen: open }),
+
       addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => {
         const id = crypto.randomUUID()
-        const newTeam: Team = {
-          ...team,
-          id,
-          createdAt: Date.now()
-        }
         set((state) => ({
-          teams: [...state.teams, newTeam]
+          teams: [...state.teams, { ...team, id, createdAt: Date.now() }]
         }))
         return id
       },
 
       removeTeam: (id: string) => {
-        set((state) => ({
-          teams: state.teams.filter((t) => t.id !== id)
-        }))
+        set((state) => ({ teams: state.teams.filter((t) => t.id !== id) }))
       },
 
       updateTeam: (id: string, partial: Partial<Team>) => {
         set((state) => ({
           teams: state.teams.map((t) => t.id === id ? { ...t, ...partial } : t)
         }))
-      }
+      },
     }),
     {
       name: 'agent-desktop-storage',
       storage: createJSONStorage(() => localStorage),
-      // 只持久化这些字段，排除运行时状态
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
         teams: state.teams,
-        settings: state.settings
+        settings: state.settings,
       })
     }
   )

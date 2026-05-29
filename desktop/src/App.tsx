@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
+import ToastContainer from './components/Toast'
+import CommandPalette from './components/CommandPalette'
 import WelcomePage from './pages/WelcomePage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
@@ -24,6 +26,8 @@ export default function App() {
             </Routes>
           </ErrorBoundary>
         </Layout>
+        <ToastContainer />
+        <CommandPalette />
       </BrowserRouter>
     </ErrorBoundary>
   )

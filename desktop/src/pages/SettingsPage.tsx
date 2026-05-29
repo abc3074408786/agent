@@ -2,12 +2,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Eye, EyeOff, Plus, Minus, Pencil, ChevronRight, ChevronDown,
-  ToggleLeft, ToggleRight, ArrowLeft, Moon, Sun,
-  Bot, Cpu, Users, Zap, Monitor, Globe, PawPrint, Layers, Info
+  ToggleLeft, ToggleRight, ArrowLeft, Moon, Sun, Monitor,
+  Bot, Cpu, Users, Zap, Globe, PawPrint, Layers, Info
 } from 'lucide-react'
 import { useAppStore, Settings } from '../store'
 
-// 设置导航
 type SettingsSection = 'agents' | 'models' | 'assistants' | 'extensions' | 'display' | 'remote' | 'pet' | 'system' | 'about'
 
 interface NavGroup {
@@ -42,15 +41,7 @@ const navGroups: NavGroup[] = [
   }
 ]
 
-// Agent 卡片数据
-interface AgentItem {
-  id: string
-  name: string
-  icon: string
-  detected: boolean
-}
-
-const localAgents: AgentItem[] = [
+const localAgents = [
   { id: 'agent_cli', name: 'Agent CLI', icon: '⊙', detected: true },
   { id: 'claude_code', name: 'Claude Code', icon: '🌸', detected: true },
   { id: 'codex_cli', name: 'Codex CLI', icon: '⊙', detected: true },
@@ -58,28 +49,19 @@ const localAgents: AgentItem[] = [
   { id: 'rag_agent', name: 'RAG Agent', icon: '📚', detected: true },
 ]
 
-// 模型数据
-interface ModelItem {
-  id: string
-  name: string
-  enabled: boolean
-  expanded: boolean
-}
-
 export default function SettingsPage() {
   const { settings, updateSettings } = useAppStore()
   const [activeSection, setActiveSection] = useState<SettingsSection>('agents')
   const navigate = useNavigate()
 
   return (
-    <div className="flex h-full overflow-hidden bg-white">
-      {/* 左侧导航 */}
-      <div className="w-[200px] h-full bg-gray-50/80 border-r border-gray-100 flex flex-col">
-        {/* 导航分组 */}
+    <div className="flex h-full overflow-hidden" style={{ background: 'var(--surface-primary)' }}>
+      {/* Left nav */}
+      <div className="w-[200px] h-full border-r border-border flex flex-col" style={{ background: 'var(--surface-secondary)' }}>
         <nav className="flex-1 overflow-y-auto px-3 pt-4 pb-4">
           {navGroups.map((group) => (
             <div key={group.label} className="mb-4">
-              <p className="px-3 mb-1.5 text-xs text-blue-500 font-medium">
+              <p className="px-3 mb-1.5 text-[10px] text-primary-500 font-semibold uppercase tracking-wider">
                 {group.label}
               </p>
               <div className="space-y-0.5">
@@ -89,11 +71,11 @@ export default function SettingsPage() {
                     onClick={() => setActiveSection(item.id)}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-all ${
                       activeSection === item.id
-                        ? 'bg-gray-200/80 text-gray-900 font-medium'
-                        : 'text-gray-600 hover:bg-gray-100'
+                        ? 'bg-surface-tertiary text-text-primary font-medium'
+                        : 'text-text-secondary hover:bg-surface-tertiary'
                     }`}
                   >
-                    <span className={activeSection === item.id ? 'text-gray-700' : 'text-gray-400'}>
+                    <span className={activeSection === item.id ? 'text-text-primary' : 'text-text-tertiary'}>
                       {item.icon}
                     </span>
                     {item.label}
@@ -104,25 +86,18 @@ export default function SettingsPage() {
           ))}
         </nav>
 
-        {/* 底部：返回聊天 + 暗色切换 */}
-        <div className="px-3 py-3 border-t border-gray-100 flex items-center justify-between">
+        <div className="px-3 py-3 border-t border-border flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary rounded-lg hover:bg-surface-tertiary transition-colors"
           >
             <ArrowLeft size={14} />
-            返回聊天
-          </button>
-          <button
-            onClick={() => updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
-            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            {settings.theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+            返回
           </button>
         </div>
       </div>
 
-      {/* 右侧内容区 */}
+      {/* Right content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl p-8">
           {activeSection === 'agents' && <AgentsSection />}
@@ -140,50 +115,33 @@ export default function SettingsPage() {
   )
 }
 
-// ============================================================
-// Agents 页 - 卡片网格
-// ============================================================
+// ============ Agents ============
 function AgentsSection() {
   const navigate = useNavigate()
-
   return (
     <div>
-      {/* 标题 + 蓝色下划线 */}
-      <div className="mb-6">
-        <h3 className="text-xl font-bold text-gray-800 pb-2 border-b-2 border-blue-500 inline-block">
-          本地 Agents
-        </h3>
-      </div>
-
-      {/* 灰色提示条 */}
-      <div className="mb-6 px-4 py-3 bg-gray-100 rounded-lg">
-        <p className="text-sm text-gray-600">
-          Agent CLI 是内置 Agent，App 自带无需安装；其他 Agent 需先在本地安装对应 CLI 才能被识别。识别自定义 Agent
+      <h3 className="text-xl font-bold text-text-primary mb-6">本地 Agents</h3>
+      <div className="mb-6 px-4 py-3 rounded-lg" style={{ background: 'var(--surface-tertiary)' }}>
+        <p className="text-sm text-text-secondary">
+          Agent CLI 是内置 Agent，App 自带无需安装；其他 Agent 需先在本地安装对应 CLI 才能被识别。
         </p>
       </div>
-
-      {/* 已检测标签 */}
-      <p className="text-sm text-gray-500 mb-4">已检测</p>
-
-      {/* Agent 卡片网格 */}
+      <p className="text-sm text-text-secondary mb-4">已检测</p>
       <div className="grid grid-cols-5 gap-4">
         {localAgents.map((agent) => (
           <div
             key={agent.id}
-            className="flex flex-col items-center p-5 bg-white rounded-xl border border-gray-150 hover:border-gray-200 hover:shadow-sm transition-all"
+            className="flex flex-col items-center p-5 rounded-xl border border-border hover:border-primary-300 hover:shadow-sm transition-all"
+            style={{ background: 'var(--surface-secondary)' }}
           >
-            {/* 图标 */}
-            <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mb-3 text-2xl">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 text-2xl" style={{ background: 'var(--surface-tertiary)' }}>
               {agent.icon}
             </div>
-            {/* 名称 */}
-            <p className="text-sm font-medium text-gray-800 mb-1">{agent.name}</p>
-            {/* 状态 */}
-            <p className="text-xs text-gray-400 mb-3">已检测</p>
-            {/* 按钮 */}
+            <p className="text-sm font-medium text-text-primary mb-1">{agent.name}</p>
+            <p className="text-xs text-text-tertiary mb-3">已检测</p>
             <button
               onClick={() => navigate('/')}
-              className="w-full py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className="w-full py-1.5 text-xs text-text-secondary border border-border rounded-lg hover:bg-surface-tertiary transition-colors"
             >
               开始对话
             </button>
@@ -194,155 +152,71 @@ function AgentsSection() {
   )
 }
 
-// ============================================================
-// 模型页 - 列表 + 开关
-// ============================================================
+// ============ Models ============
+interface SettingsProps {
+  settings: Settings
+  updateSettings: (partial: Partial<Settings>) => void
+}
+
 function ModelsSection({ settings, updateSettings }: SettingsProps) {
-  const [models, setModels] = useState<ModelItem[]>([
-    { id: '1', name: 'GPT-4o', enabled: true, expanded: false },
-    { id: '2', name: 'Claude Sonnet', enabled: true, expanded: false },
-    { id: '3', name: '自定义', enabled: true, expanded: false },
-  ])
-
-  const toggleEnabled = (id: string) => {
-    setModels(models.map(m => m.id === id ? { ...m, enabled: !m.enabled } : m))
-  }
-
-  const toggleExpand = (id: string) => {
-    setModels(models.map(m => m.id === id ? { ...m, expanded: !m.expanded } : m))
-  }
-
-  const addModel = () => {
-    setModels([...models, {
-      id: crypto.randomUUID(),
-      name: '自定义',
-      enabled: true,
-      expanded: true
-    }])
-  }
-
-  const removeModel = (id: string) => {
-    setModels(models.filter(m => m.id !== id))
-  }
-
   return (
     <div>
-      {/* 标题行 */}
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-gray-800">模型</h3>
-        <div className="flex items-center gap-2">
-          <button className="px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            清除状态
-          </button>
-          <button
-            onClick={addModel}
-            className="flex items-center gap-1 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Plus size={13} />
-            添加模型
-          </button>
-        </div>
+      <h3 className="text-xl font-bold text-text-primary mb-6">模型</h3>
+      <div className="mb-5 px-4 py-3 rounded-lg" style={{ background: 'var(--surface-tertiary)' }}>
+        <p className="text-sm text-text-secondary">配置 LLM 提供商和 API Key。</p>
       </div>
 
-      {/* 提示 */}
-      <div className="mb-5 px-4 py-3 bg-gray-100 rounded-lg">
-        <p className="text-sm text-gray-600">
-          说明：目前仅 Agent CLI 支持自定义模型。
-        </p>
-      </div>
-
-      {/* 模型列表 */}
-      <div className="space-y-2">
-        {models.map((model) => (
-          <div key={model.id} className="border border-gray-150 rounded-xl overflow-hidden bg-white">
-            {/* 模型行 */}
-            <div className="flex items-center px-4 py-3.5">
-              {/* 展开箭头 */}
-              <button
-                onClick={() => toggleExpand(model.id)}
-                className="p-1 mr-2 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                {model.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-              </button>
-
-              {/* 名称 */}
-              <span className="flex-1 text-sm font-medium text-gray-700">{model.name}</span>
-
-              {/* 操作按钮 */}
-              <div className="flex items-center gap-2">
-                {/* 开关 */}
-                <button
-                  onClick={() => toggleEnabled(model.id)}
-                  className={`transition-colors ${model.enabled ? 'text-blue-500' : 'text-gray-300'}`}
-                >
-                  {model.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
-                </button>
-                {/* + */}
-                <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                  <Plus size={15} />
-                </button>
-                {/* - */}
-                <button
-                  onClick={() => removeModel(model.id)}
-                  className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                >
-                  <Minus size={15} />
-                </button>
-                {/* 编辑 */}
-                <button
-                  onClick={() => toggleExpand(model.id)}
-                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <Pencil size={13} />
-                </button>
-              </div>
+      <div className="space-y-4">
+        <div className="p-5 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-xl">●</span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">OpenAI</p>
+              <p className="text-xs text-text-tertiary">GPT-4o, GPT-4o Mini, GPT-4 Turbo</p>
             </div>
-
-            {/* 展开详情 */}
-            {model.expanded && (
-              <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-3">
-                <TextInput label="模型名称" value={model.name} onChange={() => {}} placeholder="模型名称" />
-                <TextInput label="API Base URL" value="" onChange={() => {}} placeholder="https://api.openai.com/v1" />
-                <PasswordInput label="API Key" value="" onChange={() => {}} placeholder="sk-..." />
-              </div>
-            )}
           </div>
-        ))}
+          <PasswordInput label="API Key" value={settings.openaiKey} onChange={(v) => updateSettings({ openaiKey: v })} placeholder="sk-..." />
+        </div>
+
+        <div className="p-5 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-xl">◈</span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Anthropic</p>
+              <p className="text-xs text-text-tertiary">Claude Sonnet 4, Claude 3.5 Sonnet/Haiku</p>
+            </div>
+          </div>
+          <PasswordInput label="API Key" value={settings.anthropicKey} onChange={(v) => updateSettings({ anthropicKey: v })} placeholder="sk-ant-..." />
+        </div>
       </div>
     </div>
   )
 }
 
-// ============================================================
-// 助手页
-// ============================================================
+// ============ Assistants ============
 function AssistantsSection() {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">助手</h3>
-      <div className="px-4 py-3 bg-gray-100 rounded-lg">
-        <p className="text-sm text-gray-600">管理可用的 Agent 助手预设，支持自定义 Prompt 和工具配置。</p>
+      <h3 className="text-xl font-bold text-text-primary mb-6">助手</h3>
+      <div className="px-4 py-3 rounded-lg" style={{ background: 'var(--surface-tertiary)' }}>
+        <p className="text-sm text-text-secondary">管理可用的 Agent 助手预设，支持自定义 Prompt 和工具配置。</p>
       </div>
     </div>
   )
 }
 
-// ============================================================
-// 能力扩展
-// ============================================================
+// ============ Extensions ============
 function ExtensionsSection({ settings, updateSettings }: SettingsProps) {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">能力扩展</h3>
-
+      <h3 className="text-xl font-bold text-text-primary mb-6">能力扩展</h3>
       <div className="space-y-4">
-        {/* RAG */}
-        <div className="p-5 bg-white rounded-xl border border-gray-150">
+        <div className="p-5 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
           <div className="flex items-center gap-3 mb-4">
             <span className="text-2xl">📚</span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">RAG 知识库</p>
-              <p className="text-xs text-gray-500">远程检索增强生成服务</p>
+              <p className="text-sm font-semibold text-text-primary">RAG 知识库</p>
+              <p className="text-xs text-text-tertiary">远程检索增强生成服务</p>
             </div>
           </div>
           <div className="space-y-3">
@@ -351,13 +225,12 @@ function ExtensionsSection({ settings, updateSettings }: SettingsProps) {
           </div>
         </div>
 
-        {/* MCP */}
-        <div className="p-5 bg-white rounded-xl border border-gray-150 opacity-50">
+        <div className="p-5 rounded-xl border border-border opacity-50" style={{ background: 'var(--surface-secondary)' }}>
           <div className="flex items-center gap-3">
             <span className="text-2xl">🔌</span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">MCP 协议</p>
-              <p className="text-xs text-gray-500">Model Context Protocol 集成（即将推出）</p>
+              <p className="text-sm font-semibold text-text-primary">MCP 协议</p>
+              <p className="text-xs text-text-tertiary">Model Context Protocol 集成（即将推出）</p>
             </div>
           </div>
         </div>
@@ -366,16 +239,14 @@ function ExtensionsSection({ settings, updateSettings }: SettingsProps) {
   )
 }
 
-// ============================================================
-// 显示设置
-// ============================================================
+// ============ Display ============
 function DisplaySection({ settings, updateSettings }: SettingsProps) {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">显示</h3>
+      <h3 className="text-xl font-bold text-text-primary mb-6">显示</h3>
       <div className="space-y-6">
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-3">主题</p>
+          <p className="text-sm font-medium text-text-primary mb-3">主题</p>
           <div className="flex gap-3">
             <ThemeOption
               active={settings.theme === 'light'}
@@ -389,14 +260,12 @@ function DisplaySection({ settings, updateSettings }: SettingsProps) {
               label="深色"
               icon={<Moon size={18} />}
             />
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">字体大小</p>
-          <div className="flex items-center gap-3">
-            <input type="range" min="12" max="18" defaultValue="14" className="flex-1 accent-blue-500" />
-            <span className="text-sm text-gray-500 w-10">14px</span>
+            <ThemeOption
+              active={settings.theme === 'system'}
+              onClick={() => updateSettings({ theme: 'system' })}
+              label="跟随系统"
+              icon={<Monitor size={18} />}
+            />
           </div>
         </div>
       </div>
@@ -404,13 +273,11 @@ function DisplaySection({ settings, updateSettings }: SettingsProps) {
   )
 }
 
-// ============================================================
-// 远程连接
-// ============================================================
+// ============ Remote ============
 function RemoteSection({ settings, updateSettings }: SettingsProps) {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">远程连接</h3>
+      <h3 className="text-xl font-bold text-text-primary mb-6">远程连接</h3>
       <div className="space-y-4">
         <TextInput label="Agent 服务地址" value={settings.agentRemoteUrl} onChange={(v) => updateSettings({ agentRemoteUrl: v })} placeholder="https://agent.your-server.com" />
         <TextInput label="本地端口" value={String(settings.agentLocalPort)} onChange={(v) => updateSettings({ agentLocalPort: parseInt(v) || 8765 })} placeholder="8765" />
@@ -419,102 +286,66 @@ function RemoteSection({ settings, updateSettings }: SettingsProps) {
   )
 }
 
-// ============================================================
-// 系统
-// ============================================================
+// ============ System ============
 function SystemSection({ settings, updateSettings }: SettingsProps) {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">系统</h3>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-150">
-          <div>
-            <p className="text-sm font-medium text-gray-700">开机自启</p>
-            <p className="text-xs text-gray-400">系统启动时自动运行 Agent Desktop</p>
-          </div>
-          <button className="text-gray-300">
-            <ToggleLeft size={24} />
-          </button>
-        </div>
-        <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-150">
-          <div>
-            <p className="text-sm font-medium text-gray-700">最小化到托盘</p>
-            <p className="text-xs text-gray-400">关闭窗口时最小化到系统托盘</p>
-          </div>
-          <button className="text-blue-500">
-            <ToggleRight size={24} />
-          </button>
-        </div>
+      <h3 className="text-xl font-bold text-text-primary mb-6">系统</h3>
+      <div className="space-y-3">
+        <ToggleRow title="开机自启" description="系统启动时自动运行 Agent Desktop" enabled={false} onToggle={() => {}} />
+        <ToggleRow title="最小化到托盘" description="关闭窗口时最小化到系统托盘" enabled={true} onToggle={() => {}} />
       </div>
     </div>
   )
 }
 
-// ============================================================
-// 关于
-// ============================================================
+// ============ About ============
 function AboutSection() {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-6">关于</h3>
-      <div className="p-6 bg-white rounded-xl border border-gray-150">
+      <h3 className="text-xl font-bold text-text-primary mb-6">关于</h3>
+      <div className="p-6 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
         <div className="flex items-center gap-4 mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-lg">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg">
             <span className="text-white text-2xl font-bold">A</span>
           </div>
           <div>
-            <h4 className="text-lg font-bold text-gray-800">Agent Desktop</h4>
-            <p className="text-sm text-gray-500">v0.2.0</p>
+            <h4 className="text-lg font-bold text-text-primary">Agent Desktop</h4>
+            <p className="text-sm text-text-tertiary">v0.2.0</p>
           </div>
         </div>
-        <div className="space-y-2 text-sm text-gray-600">
-          <div className="flex justify-between py-2 border-b border-gray-100">
-            <span>框架</span><span className="text-gray-800">Electron + React</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-gray-100">
-            <span>Agent 版本</span><span className="text-gray-800">v0.2.0</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-gray-100">
-            <span>内置工具</span><span className="text-gray-800">20 个</span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span>开源协议</span><span className="text-gray-800">MIT</span>
-          </div>
+        <div className="space-y-2 text-sm">
+          <InfoRow label="框架" value="Electron + React + TypeScript" />
+          <InfoRow label="Agent 版本" value="v0.2.0" />
+          <InfoRow label="内置工具" value="20 个" />
+          <InfoRow label="技能包" value="11 个" />
+          <InfoRow label="开源协议" value="MIT" />
         </div>
       </div>
     </div>
   )
 }
 
-// ============================================================
-// 占位页
-// ============================================================
 function PlaceholderSection({ title, description }: { title: string; description: string }) {
   return (
     <div>
-      <h3 className="text-xl font-bold text-gray-800 mb-4">{title}</h3>
-      <div className="px-4 py-3 bg-gray-100 rounded-lg">
-        <p className="text-sm text-gray-600">{description}</p>
+      <h3 className="text-xl font-bold text-text-primary mb-4">{title}</h3>
+      <div className="px-4 py-3 rounded-lg" style={{ background: 'var(--surface-tertiary)' }}>
+        <p className="text-sm text-text-secondary">{description}</p>
       </div>
     </div>
   )
 }
 
-// ============================================================
-// 通用子组件
-// ============================================================
-interface SettingsProps {
-  settings: Settings
-  updateSettings: (partial: Partial<Settings>) => void
-}
-
+// ============ Shared components ============
 function ThemeOption({ active, onClick, label, icon }: { active: boolean; onClick: () => void; label: string; icon: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
       className={`flex items-center gap-2 px-5 py-3 rounded-xl border-2 transition-all ${
-        active ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'
+        active ? 'border-primary-500 text-primary-500' : 'border-border text-text-secondary hover:border-text-tertiary'
       }`}
+      style={active ? { background: 'rgba(59, 130, 246, 0.05)' } : undefined}
     >
       {icon}
       <span className="text-sm font-medium">{label}</span>
@@ -522,16 +353,40 @@ function ThemeOption({ active, onClick, label, icon }: { active: boolean; onClic
   )
 }
 
+function ToggleRow({ title, description, enabled, onToggle }: { title: string; description: string; enabled: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center justify-between p-4 rounded-xl border border-border" style={{ background: 'var(--surface-secondary)' }}>
+      <div>
+        <p className="text-sm font-medium text-text-primary">{title}</p>
+        <p className="text-xs text-text-tertiary">{description}</p>
+      </div>
+      <button onClick={onToggle} className={enabled ? 'text-primary-500' : 'text-text-tertiary'}>
+        {enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+      </button>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between py-2 border-b border-border">
+      <span className="text-text-secondary">{label}</span>
+      <span className="text-text-primary font-medium">{value}</span>
+    </div>
+  )
+}
+
 function TextInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder: string }) {
   return (
     <div>
-      <label className="text-xs font-medium text-gray-600 mb-1 block">{label}</label>
+      <label className="text-xs font-medium text-text-secondary mb-1 block">{label}</label>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+        className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary placeholder-text-tertiary"
+        style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}
       />
     </div>
   )
@@ -541,19 +396,20 @@ function PasswordInput({ label, value, onChange, placeholder }: { label: string;
   const [visible, setVisible] = useState(false)
   return (
     <div>
-      <label className="text-xs font-medium text-gray-600 mb-1 block">{label}</label>
+      <label className="text-xs font-medium text-text-secondary mb-1 block">{label}</label>
       <div className="relative">
         <input
           type={visible ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          className="w-full px-3 py-2 pr-10 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary placeholder-text-tertiary"
+          style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}
         />
         <button
           type="button"
           onClick={() => setVisible(!visible)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary"
         >
           {visible ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>

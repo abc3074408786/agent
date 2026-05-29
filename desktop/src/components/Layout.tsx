@@ -1,26 +1,51 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import Sidebar from './Sidebar'
 import TitleBar from './TitleBar'
+import ArtifactsPanel from './ArtifactsPanel'
+import { useAppStore } from '../store'
 
 interface LayoutProps {
   children: ReactNode
 }
 
 export default function Layout({ children }: LayoutProps) {
+  const { settings } = useAppStore()
+
+  // Apply theme class to document
+  useEffect(() => {
+    const root = document.documentElement
+    if (settings.theme === 'dark') {
+      root.classList.add('dark')
+    } else if (settings.theme === 'light') {
+      root.classList.remove('dark')
+    } else {
+      // system
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      if (prefersDark) {
+        root.classList.add('dark')
+      } else {
+        root.classList.remove('dark')
+      }
+    }
+  }, [settings.theme])
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-white">
-      {/* 标题栏 */}
+    <div className="flex flex-col h-screen w-screen transition-theme" style={{ background: 'var(--surface-primary)' }}>
+      {/* Title bar */}
       <TitleBar />
 
-      {/* 主体 */}
+      {/* Main body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 左侧边栏 */}
+        {/* Sidebar */}
         <Sidebar />
 
-        {/* 主内容区 */}
-        <main className="flex-1 overflow-hidden bg-white">
+        {/* Main content */}
+        <main className="flex-1 overflow-hidden" style={{ background: 'var(--surface-primary)' }}>
           {children}
         </main>
+
+        {/* Artifacts panel */}
+        <ArtifactsPanel />
       </div>
     </div>
   )

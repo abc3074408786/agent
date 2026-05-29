@@ -2,10 +2,102 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   Theme System - CSS Variables
+   ============================================ */
+
 :root {
+  /* Layout */
   --sidebar-width: 240px;
+  --sidebar-collapsed-width: 56px;
   --titlebar-height: 40px;
+  --artifacts-width: 420px;
+
+  /* Light theme (default) */
+  --surface-primary: #ffffff;
+  --surface-secondary: #f9fafb;
+  --surface-tertiary: #f3f4f6;
+
+  --sidebar-bg: #f9fafb;
+  --sidebar-hover: #f3f4f6;
+  --sidebar-active: #e5e7eb;
+
+  --border-primary: #e5e7eb;
+  --border-secondary: #f3f4f6;
+
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --text-inverse: #ffffff;
+
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+  --accent-amber: #f59e0b;
+  --accent-blue: #3b82f6;
+
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-thumb-hover: #9ca3af;
+
+  --code-bg: #1e1e2e;
+  --input-bg: #ffffff;
+  --input-border: #e5e7eb;
+  --dropdown-bg: #ffffff;
+  --dropdown-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+
+  --toast-success-bg: #ecfdf5;
+  --toast-success-border: #a7f3d0;
+  --toast-error-bg: #fef2f2;
+  --toast-error-border: #fecaca;
+  --toast-warning-bg: #fffbeb;
+  --toast-warning-border: #fde68a;
+  --toast-info-bg: #eff6ff;
+  --toast-info-border: #bfdbfe;
 }
+
+.dark {
+  --surface-primary: #0f0f0f;
+  --surface-secondary: #1a1a1a;
+  --surface-tertiary: #262626;
+
+  --sidebar-bg: #141414;
+  --sidebar-hover: #1f1f1f;
+  --sidebar-active: #2a2a2a;
+
+  --border-primary: #2a2a2a;
+  --border-secondary: #1f1f1f;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
+  --text-inverse: #111827;
+
+  --accent-green: #34d399;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --accent-blue: #60a5fa;
+
+  --scrollbar-thumb: #404040;
+  --scrollbar-thumb-hover: #525252;
+
+  --code-bg: #0d0d0d;
+  --input-bg: #1a1a1a;
+  --input-border: #333333;
+  --dropdown-bg: #1a1a1a;
+  --dropdown-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+
+  --toast-success-bg: #052e16;
+  --toast-success-border: #166534;
+  --toast-error-bg: #450a0a;
+  --toast-error-border: #991b1b;
+  --toast-warning-bg: #451a03;
+  --toast-warning-border: #92400e;
+  --toast-info-bg: #172554;
+  --toast-info-border: #1e40af;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
 
 * {
   margin: 0;
@@ -18,9 +110,14 @@ html, body, #root {
   width: 100%;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--surface-primary);
+  color: var(--text-primary);
 }
 
-/* 自定义滚动条 */
+/* ============================================
+   Scrollbar
+   ============================================ */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -31,15 +128,18 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: var(--scrollbar-thumb-hover);
 }
 
-/* 拖拽区域（标题栏） */
+/* ============================================
+   Electron Window
+   ============================================ */
+
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -48,9 +148,12 @@ html, body, #root {
   -webkit-app-region: no-drag;
 }
 
-/* Markdown 样式 */
+/* ============================================
+   Markdown Styles
+   ============================================ */
+
 .markdown-body pre {
-  background: #1e1e2e;
+  background: var(--code-bg);
   border-radius: 8px;
   padding: 12px 16px;
   overflow-x: auto;
@@ -69,4 +172,35 @@ html, body, #root {
 .markdown-body ul, .markdown-body ol {
   padding-left: 20px;
   margin-bottom: 8px;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border-primary);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.markdown-body th {
+  background: var(--surface-tertiary);
+  font-weight: 600;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+.glass-effect {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.transition-theme {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
