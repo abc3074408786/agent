@@ -258,5 +258,45 @@ export const agentService = {
     } catch {
       return []
     }
+  },
+
+  /**
+   * 获取可用模型列表
+   */
+  async getModels(): Promise<Array<{ id: string; name: string; provider: string }>> {
+    const baseUrl = getBaseUrl()
+    if (!baseUrl) return []
+
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: getHeaders()
+      })
+      if (!response.ok) return []
+      const data = await response.json()
+      return data.models || data || []
+    } catch {
+      return []
+    }
+  },
+
+  /**
+   * 获取可用 Agent 列表
+   */
+  async getAgents(): Promise<Array<{ id: string; name: string; description: string; icon: string }>> {
+    const baseUrl = getBaseUrl()
+    if (!baseUrl) return []
+
+    try {
+      const response = await fetch(`${baseUrl}/agents`, {
+        method: 'GET',
+        headers: getHeaders()
+      })
+      if (!response.ok) return []
+      const data = await response.json()
+      return data.agents || data || []
+    } catch {
+      return []
+    }
   }
 }

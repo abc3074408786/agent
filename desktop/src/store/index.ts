@@ -114,7 +114,8 @@ export interface ModelOption {
   icon: string
 }
 
-export const AVAILABLE_MODELS: ModelOption[] = [
+// Fallback defaults (used when API is unreachable)
+export const DEFAULT_MODELS: ModelOption[] = [
   { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', icon: '●' },
   { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', icon: '○' },
   { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', icon: '●' },
@@ -131,7 +132,8 @@ export interface AgentOption {
   icon: string
 }
 
-export const AVAILABLE_AGENTS: AgentOption[] = [
+// Fallback defaults (used when API is unreachable)
+export const DEFAULT_AGENTS: AgentOption[] = [
   { id: 'default', name: '默认 Agent', description: '通用智能助手', icon: '⊙' },
   { id: 'code_reviewer', name: '代码审查', description: '代码审查 + 安全审计', icon: '🔍' },
   { id: 'python_developer', name: 'Python 开发', description: 'Python 开发 + 测试', icon: '🐍' },
@@ -141,6 +143,11 @@ export const AVAILABLE_AGENTS: AgentOption[] = [
   { id: 'security_auditor', name: '安全审计', description: '漏洞扫描 + 修复建议', icon: '🛡️' },
   { id: 'test_engineer', name: '测试工程师', description: '测试策略 + 自动化', icon: '🧪' },
 ]
+
+// Re-export for backward compatibility - components use these
+// They get overridden at runtime by fetchRemoteConfig()
+export let AVAILABLE_MODELS: ModelOption[] = [...DEFAULT_MODELS]
+export let AVAILABLE_AGENTS: AgentOption[] = [...DEFAULT_AGENTS]
 
 // ============================================
 // Store
@@ -154,6 +161,9 @@ interface AppState {
   teams: Team[]
   // Settings
   settings: Settings
+  // Dynamic config (fetched from backend)
+  remoteModels: ModelOption[]
+  remoteAgents: AgentOption[]
   // Runtime (not persisted)
   agentRunning: boolean
   isGenerating: boolean
@@ -191,6 +201,10 @@ interface AppState {
   addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => string
   removeTeam: (id: string) => void
   updateTeam: (id: string, partial: Partial<Team>) => void
+  // Actions: Dynamic config
+  fetchRemoteConfig: () => Promise<void>
+  getModels: () => ModelOption[]
+  getAgents: () => AgentOption[]
 }
 
 const defaultSettings: Settings = {
@@ -218,6 +232,8 @@ export const useAppStore = create<AppState>()(
       currentSessionId: null,
       teams: [],
       settings: defaultSettings,
+      remoteModels: [],
+      remoteAgents: [],
       agentRunning: false,
       isGenerating: false,
       abortController: null,
@@ -402,6 +418,84 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           teams: state.teams.map((t) => t.id === id ? { ...t, ...partial } : t)
         }))
+      },
+
+      // Dynamic config: fetch models & agents from backend API
+      fetchRemoteConfig: async () => {
+        const state = get()
+        const baseUrl = state.settings.agentMode === 'local'
+          ? `http://127.0.0.1:${state.settings.agentLocalPort}`
+          : state.settings.agentRemoteUrl
+
+        if (!baseUrl) return
+
+        // Fetch models
+        try {
+          const modelsResp = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(5000) })
+          if (modelsResp.ok) {
+            const data = await modelsResp.json()
+            const models: ModelOption[] = (data.models || data || []).map((m: any) => ({
+              id: m.id || m.model || m.name,
+              name: m.name || m.id || m.model,
+              provider: m.provider || (m.id?.startsWith('claude') ? 'anthropic' : 'openai'),
+              icon: m.provider === 'anthropic' || m.id?.startsWith('claude') ? '◈' : '●',
+            }))
+            if (models.length > 0) {
+              set({ remoteModels: models })
+              // Update the mutable export for components that import directly
+              AVAILABLE_MODELS.splice(0, AVAILABLE_MODELS.length, ...models)
+            }
+          }
+        } catch { /* fallback to defaults */ }
+
+        // Fetch agents/skills
+        try {
+          const agentsResp = await fetch(`${baseUrl}/agents`, { signal: AbortSignal.timeout(5000) })
+          if (agentsResp.ok) {
+            const data = await agentsResp.json()
+            const agents: AgentOption[] = (data.agents || data || []).map((a: any) => ({
+              id: a.id || a.name,
+              name: a.name || a.id,
+              description: a.description || '',
+              icon: a.icon || '⊙',
+            }))
+            if (agents.length > 0) {
+              set({ remoteAgents: agents })
+              AVAILABLE_AGENTS.splice(0, AVAILABLE_AGENTS.length, ...agents)
+            }
+          }
+        } catch {
+          // Try /skills endpoint as fallback
+          try {
+            const skillsResp = await fetch(`${baseUrl}/skills`, { signal: AbortSignal.timeout(5000) })
+            if (skillsResp.ok) {
+              const data = await skillsResp.json()
+              const skills = data.skills || data || []
+              if (Array.isArray(skills) && skills.length > 0 && typeof skills[0] === 'object') {
+                const agents: AgentOption[] = skills.map((s: any) => ({
+                  id: s.id || s.name,
+                  name: s.name || s.id,
+                  description: s.description || '',
+                  icon: s.icon || '⊙',
+                }))
+                set({ remoteAgents: agents })
+                AVAILABLE_AGENTS.splice(0, AVAILABLE_AGENTS.length, ...agents)
+              }
+            }
+          } catch { /* fallback to defaults */ }
+        }
+      },
+
+      // Getter: returns remote models if available, otherwise defaults
+      getModels: () => {
+        const state = get()
+        return state.remoteModels.length > 0 ? state.remoteModels : DEFAULT_MODELS
+      },
+
+      // Getter: returns remote agents if available, otherwise defaults
+      getAgents: () => {
+        const state = get()
+        return state.remoteAgents.length > 0 ? state.remoteAgents : DEFAULT_AGENTS
       },
     }),
     {

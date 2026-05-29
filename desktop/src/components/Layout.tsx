@@ -9,7 +9,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { settings } = useAppStore()
+  const { settings, fetchRemoteConfig } = useAppStore()
 
   // Apply theme class to document
   useEffect(() => {
@@ -28,6 +28,11 @@ export default function Layout({ children }: LayoutProps) {
       }
     }
   }, [settings.theme])
+
+  // Fetch remote models/agents on mount and when connection settings change
+  useEffect(() => {
+    fetchRemoteConfig()
+  }, [settings.agentMode, settings.agentLocalPort, settings.agentRemoteUrl])
 
   return (
     <div className="flex flex-col h-screen w-screen transition-theme" style={{ background: 'var(--surface-primary)' }}>

@@ -7,11 +7,12 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ compact = false }: ModelSelectorProps) {
-  const { settings, updateSettings } = useAppStore()
+  const { settings, updateSettings, getModels } = useAppStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const currentModel = AVAILABLE_MODELS.find((m) => m.id === settings.defaultModel) || AVAILABLE_MODELS[0]
+  const models = getModels()
+  const currentModel = models.find((m) => m.id === settings.defaultModel) || models[0]
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -53,7 +54,7 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
           <div className="py-1 max-h-[250px] overflow-y-auto">
             {/* OpenAI */}
             <p className="px-3 pt-2 pb-1 text-[10px] text-text-tertiary">OpenAI</p>
-            {AVAILABLE_MODELS.filter((m) => m.provider === 'openai').map((model) => (
+            {models.filter((m) => m.provider === 'openai').map((model) => (
               <ModelItem
                 key={model.id}
                 model={model}
@@ -63,7 +64,7 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
             ))}
             {/* Anthropic */}
             <p className="px-3 pt-3 pb-1 text-[10px] text-text-tertiary">Anthropic</p>
-            {AVAILABLE_MODELS.filter((m) => m.provider === 'anthropic').map((model) => (
+            {models.filter((m) => m.provider === 'anthropic').map((model) => (
               <ModelItem
                 key={model.id}
                 model={model}
@@ -71,6 +72,20 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
                 onSelect={selectModel}
               />
             ))}
+            {/* Custom */}
+            {models.filter((m) => m.provider === 'custom').length > 0 && (
+              <>
+                <p className="px-3 pt-3 pb-1 text-[10px] text-text-tertiary">自定义</p>
+                {models.filter((m) => m.provider === 'custom').map((model) => (
+                  <ModelItem
+                    key={model.id}
+                    model={model}
+                    selected={model.id === settings.defaultModel}
+                    onSelect={selectModel}
+                  />
+                ))}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -103,10 +118,12 @@ interface AgentSelectorProps {
 }
 
 export function AgentSelector({ value, onChange, compact = false }: AgentSelectorProps) {
+  const { getAgents } = useAppStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const currentAgent = AVAILABLE_AGENTS.find((a) => a.id === (value || 'default')) || AVAILABLE_AGENTS[0]
+  const agents = getAgents()
+  const currentAgent = agents.find((a) => a.id === (value || 'default')) || agents[0]
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -138,7 +155,7 @@ export function AgentSelector({ value, onChange, compact = false }: AgentSelecto
             <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">选择 Agent</p>
           </div>
           <div className="py-1 max-h-[300px] overflow-y-auto">
-            {AVAILABLE_AGENTS.map((agent) => (
+            {agents.map((agent) => (
               <button
                 key={agent.id}
                 onClick={() => { onChange?.(agent.id); setOpen(false) }}

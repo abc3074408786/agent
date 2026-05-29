@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppStore, AVAILABLE_AGENTS } from '../store'
+import { useAppStore } from '../store'
 import { Send, Plus, ChevronDown, Command } from 'lucide-react'
 import { ModelSelector, AgentSelector } from '../components/ModelSelector'
 
 export default function WelcomePage() {
   const navigate = useNavigate()
-  const { createSession, setPendingSessionId, setCommandPaletteOpen } = useAppStore()
+  const { createSession, setPendingSessionId, setCommandPaletteOpen, getAgents } = useAppStore()
   const [activeAgent, setActiveAgent] = useState('default')
   const [inputText, setInputText] = useState('')
+
+  const agents = getAgents()
 
   const handleSelectAgent = (agentId: string) => {
     const sessionId = createSession(agentId !== 'default' ? agentId : undefined)
@@ -105,7 +107,7 @@ export default function WelcomePage() {
             选择专业 Agent
           </p>
           <div className="grid grid-cols-4 gap-3">
-            {AVAILABLE_AGENTS.map((agent) => (
+            {agents.map((agent) => (
               <button
                 key={agent.id}
                 onClick={() => handleSelectAgent(agent.id)}

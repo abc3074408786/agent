@@ -4,7 +4,7 @@ import {
   Search, MessageSquare, Settings, Users, Bot, Zap,
   Plus, Clock, Command
 } from 'lucide-react'
-import { useAppStore, AVAILABLE_AGENTS } from '../store'
+import { useAppStore } from '../store'
 
 interface CommandItem {
   id: string
@@ -17,11 +17,13 @@ interface CommandItem {
 }
 
 export default function CommandPalette() {
-  const { commandPaletteOpen, setCommandPaletteOpen, sessions, createSession } = useAppStore()
+  const { commandPaletteOpen, setCommandPaletteOpen, sessions, createSession, getAgents } = useAppStore()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const agents = getAgents()
 
   // Global keyboard shortcut
   useEffect(() => {
@@ -82,7 +84,7 @@ export default function CommandPalette() {
       action: () => { const id = createSession(); navigate(`/chat/${id}`); close() }, category: 'action'
     },
     // Agents
-    ...AVAILABLE_AGENTS.map((agent) => ({
+    ...agents.map((agent) => ({
       id: `agent-${agent.id}`,
       icon: <span className="text-base">{agent.icon}</span>,
       label: agent.name,
