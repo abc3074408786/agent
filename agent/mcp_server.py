@@ -171,29 +171,63 @@ TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
-        "name": "code_graph_query",
-        "description": "查询代码图谱：函数/类的依赖关系",
+        "name": "code_graph_index",
+        "description": "索引代码库到本地知识图谱（SQLite）。首次调用全量索引，后续增量更新（仅变更文件）。",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "symbol": {"type": "string", "description": "要查询的符号名 (函数/类)"},
-                "path": {"type": "string", "description": "项目路径"},
-                "depth": {"type": "integer", "description": "查询深度", "default": 2},
+                "path": {"type": "string", "description": "项目根目录路径", "default": "."},
+                "force": {"type": "boolean", "description": "强制全量重建索引", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "code_graph_search",
+        "description": "FTS5 全文搜索代码符号。支持前缀(calc*)、短语(\"token estimator\")、布尔(cache OR retry)。比 grep 快，返回结构化的符号信息。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键字（支持 FTS5 语法）"},
+                "path": {"type": "string", "description": "项目路径", "default": "."},
+                "limit": {"type": "integer", "description": "最大返回数量", "default": 20},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "code_graph_context",
+        "description": "一次调用获取符号的完整上下文：定义位置、函数签名、调用者、被调用者、影响范围。替代多次 grep+read 操作。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "要查询的符号名（函数/类名）"},
+                "path": {"type": "string", "description": "项目路径", "default": "."},
             },
             "required": ["symbol"],
         },
     },
     {
         "name": "code_graph_impact",
-        "description": "分析代码修改的影响范围",
+        "description": "影响分析：修改某个符号会影响哪些文件和函数（递归追溯调用链和依赖关系）",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "file": {"type": "string", "description": "修改的文件路径"},
-                "symbol": {"type": "string", "description": "修改的符号名 (可选)"},
-                "path": {"type": "string", "description": "项目路径"},
+                "symbol": {"type": "string", "description": "要分析的符号名"},
+                "path": {"type": "string", "description": "项目路径", "default": "."},
             },
-            "required": ["file"],
+            "required": ["symbol"],
+        },
+    },
+    {
+        "name": "code_graph_stats",
+        "description": "获取代码图谱统计信息：文件数、符号数、边数、数据库大小等",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "项目路径", "default": "."},
+            },
+            "required": [],
         },
     },
     {
@@ -375,25 +409,39 @@ async def execute_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             output = result.stdout + result.stderr
             return {"content": [{"type": "text", "text": output.strip()}]}
 
-        elif name == "code_graph_query":
+        elif name == "code_graph_index":
+            path = arguments.get("path", ".")
+            force = arguments.get("force", False)
+            from agent.agent.code_graph import code_graph_index_tool
+            output = code_graph_index_tool(path, force)
+            return {"content": [{"type": "text", "text": output}]}
+
+        elif name == "code_graph_search":
+            query = arguments["query"]
+            path = arguments.get("path", ".")
+            from agent.agent.code_graph import code_graph_search_tool
+            output = code_graph_search_tool(query, path)
+            return {"content": [{"type": "text", "text": output}]}
+
+        elif name == "code_graph_context":
             symbol = arguments["symbol"]
             path = arguments.get("path", ".")
-            depth = arguments.get("depth", 2)
-            # 简单实现：通过 grep 查找符号引用
-            cmd = ["grep", "-rn", symbol, path, "--include=*.py"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            refs = result.stdout.strip().split("\n") if result.stdout.strip() else []
-            return {"content": [{"type": "text", "text": f"Symbol: {symbol}\nReferences ({len(refs)}):\n" + "\n".join(refs[:50])}]}
+            from agent.agent.code_graph import code_graph_context_tool
+            output = code_graph_context_tool(symbol, path)
+            return {"content": [{"type": "text", "text": output}]}
 
         elif name == "code_graph_impact":
-            file = arguments["file"]
+            symbol = arguments["symbol"]
             path = arguments.get("path", ".")
-            # 简单实现：查找导入该文件的模块
-            basename = os.path.splitext(os.path.basename(file))[0]
-            cmd = ["grep", "-rn", f"import.*{basename}", path, "--include=*.py"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            importers = result.stdout.strip().split("\n") if result.stdout.strip() else []
-            return {"content": [{"type": "text", "text": f"Impact of {file}:\nImported by ({len(importers)}):\n" + "\n".join(importers[:50])}]}
+            from agent.agent.code_graph import code_graph_impact_tool
+            output = code_graph_impact_tool(symbol, path)
+            return {"content": [{"type": "text", "text": output}]}
+
+        elif name == "code_graph_stats":
+            path = arguments.get("path", ".")
+            from agent.agent.code_graph import code_graph_stats_tool
+            output = code_graph_stats_tool(path)
+            return {"content": [{"type": "text", "text": output}]}
 
         elif name == "auto_test":
             path = arguments.get("path", ".")
