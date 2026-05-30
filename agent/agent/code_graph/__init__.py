@@ -1,8 +1,9 @@
 """
-代码图谱分析模块 - 基于 Python AST + SQLite 持久化的代码结构分析器
+代码图谱分析模块 - 多语言代码结构分析器 (Python AST + tree-sitter)
 
 功能:
-- 解析 Python 源代码，提取函数、类、导入关系
+- 多语言支持: Python, TypeScript, JavaScript, Go, Rust, Java, Ruby, Swift, C/C++
+- Python 用内置 ast 模块（最精确），其他语言用 tree-sitter 或正则回退
 - 构建调用图、导入图、继承图（持久化到 SQLite）
 - FTS5 全文搜索符号
 - 基于文件 hash 的增量更新（只重新解析变更文件）
@@ -23,6 +24,12 @@ from .storage import (
     EdgeRecord,
     get_storage,
     reset_storage,
+)
+from .parser import (
+    detect_language,
+    parse_file as ts_parse_file,
+    SUPPORTED_EXTENSIONS,
+    HAS_TREE_SITTER,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,7 +184,12 @@ class _ASTVisitor(ast.NodeVisitor):
 _SKIP_DIRS = {
     "__pycache__", ".venv", "venv", "node_modules", ".git",
     ".tox", "dist", "build", "egg-info", ".codegraph",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".next",
+    "target", "bin", "obj", ".gradle",
 }
+
+# 支持索引的文件扩展名
+_INDEX_EXTENSIONS = {".py"} | SUPPORTED_EXTENSIONS
 
 
 # ==============================================================================
@@ -186,14 +198,14 @@ _SKIP_DIRS = {
 
 
 class CodeGraphAnalyzer:
-    """Python 代码图谱分析器（SQLite 持久化版）
+    """多语言代码图谱分析器（SQLite 持久化版）
     
-    基于 AST 解析 Python 源代码，将代码结构持久化到 SQLite 数据库。
-    支持增量更新（基于文件 hash），FTS5 全文搜索，结构化图查询。
+    支持 Python, TypeScript, JavaScript, Go, Rust, Java, Ruby, Swift, C/C++。
+    Python 用内置 ast（最精确），其他语言用 tree-sitter 或正则回退。
     
     用法:
         analyzer = CodeGraphAnalyzer("/path/to/project")
-        analyzer.index()  # 首次全量索引
+        analyzer.index()  # 首次全量索引（所有支持的语言）
         # 后续调用会自动增量更新
         
         # 查询
@@ -220,33 +232,55 @@ class CodeGraphAnalyzer:
     # 索引方法
     # ==========================================================================
 
-    def index(self, pattern: str = "**/*.py", force: bool = False) -> Dict[str, int]:
+    def index(self, pattern: Optional[str] = None, force: bool = False) -> Dict[str, int]:
         """索引项目（增量模式，只重新解析变更文件）
         
+        默认扫描所有支持的语言文件 (.py, .ts, .js, .go, .rs, .java, .rb, .swift, .c, .cpp)。
+        
         Args:
-            pattern: 文件匹配模式
+            pattern: 文件匹配模式。None 表示扫描所有支持的文件类型。
+                     可指定如 "**/*.py" 仅索引 Python。
             force: 强制全量重新索引
             
         Returns:
-            {"indexed": 新索引数, "skipped": 跳过数, "total_files": 总文件数, "elapsed_ms": 耗时}
+            {"indexed": 新索引数, "skipped": 跳过数, "total_files": 总文件数,
+             "elapsed_ms": 耗时, "languages": 各语言文件数}
         """
         start_time = time.time()
         self._indexed_count = 0
         self._skipped_count = 0
+        language_counts: Dict[str, int] = {}
 
         root = Path(self.project_root)
         total_files = 0
 
-        for filepath in root.glob(pattern):
+        if pattern:
+            # 用户指定了 pattern
+            file_iter = root.glob(pattern)
+        else:
+            # 扫描所有支持的文件类型
+            file_iter = (
+                f for f in root.rglob("*")
+                if f.suffix.lower() in _INDEX_EXTENSIONS
+            )
+
+        for filepath in file_iter:
             # 跳过特定目录
             parts = filepath.parts
             if any(skip in parts for skip in _SKIP_DIRS):
                 continue
             if not filepath.is_file():
                 continue
+            # 检查是否是支持的文件类型
+            if filepath.suffix.lower() not in _INDEX_EXTENSIONS:
+                continue
 
             total_files += 1
             filepath_str = str(filepath.resolve())
+
+            # 统计语言
+            lang = detect_language(filepath_str) or "python"
+            language_counts[lang] = language_counts.get(lang, 0) + 1
 
             if not force and not self.storage.file_needs_reindex(filepath_str):
                 self._skipped_count += 1
@@ -260,10 +294,13 @@ class CodeGraphAnalyzer:
             "skipped": self._skipped_count,
             "total_files": total_files,
             "elapsed_ms": elapsed_ms,
+            "languages": language_counts,
         }
+        lang_summary = ", ".join(f"{k}:{v}" for k, v in sorted(language_counts.items()))
         logger.info(
             f"索引完成: {self._indexed_count} 个文件已索引, "
             f"{self._skipped_count} 个跳过 (未变更), "
+            f"语言分布: [{lang_summary}], "
             f"耗时 {elapsed_ms}ms"
         )
         return result
@@ -289,7 +326,7 @@ class CodeGraphAnalyzer:
         self._index_file(filepath)
 
     def _index_file(self, filepath: str):
-        """内部方法：解析并存储单个文件"""
+        """内部方法：解析并存储单个文件（自动识别语言）"""
         try:
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
@@ -297,6 +334,16 @@ class CodeGraphAnalyzer:
             logger.warning(f"无法读取文件 {filepath}: {e}")
             return
 
+        language = detect_language(filepath)
+
+        # Python 使用内置 ast 模块（更精确）
+        if language == "python" or language is None:
+            self._index_python_file(filepath, source)
+        else:
+            self._index_other_file(filepath, source, language)
+
+    def _index_python_file(self, filepath: str, source: str):
+        """使用 Python ast 模块索引 .py 文件"""
         try:
             tree = ast.parse(source, filename=filepath)
         except SyntaxError as e:
@@ -398,7 +445,80 @@ class CodeGraphAnalyzer:
 
         self._indexed_count += 1
         logger.debug(
-            f"已索引: {filepath} "
+            f"已索引 [Python]: {filepath} "
+            f"(符号: {len(symbols)}, 边: {len(edges)})"
+        )
+
+    def _index_other_file(self, filepath: str, source: str, language: str):
+        """使用 tree-sitter 或正则解析非 Python 文件"""
+        # 调用统一解析器
+        parse_result = ts_parse_file(filepath)
+
+        if not parse_result.success:
+            logger.debug(f"解析跳过 [{language}] {filepath}: {parse_result.error}")
+            return
+
+        if parse_result.language == "python":
+            # parser 返回 python 标记，说明应该走 ast 路径
+            self._index_python_file(filepath, source)
+            return
+
+        # 计算文件 hash 并更新文件记录
+        file_hash = self.storage.compute_file_hash(filepath)
+        file_size = os.path.getsize(filepath)
+
+        # 先清除旧数据
+        self.storage.remove_file(filepath)
+
+        # 插入/更新文件记录
+        file_id = self.storage.upsert_file(filepath, file_hash, file_size)
+
+        module_name = Path(filepath).stem
+
+        # 收集符号
+        symbols: List[SymbolRecord] = []
+        edges: List[EdgeRecord] = []
+
+        # 模块节点
+        symbols.append(SymbolRecord(
+            name=module_name,
+            qualified_name=module_name,
+            type="module",
+            file_id=file_id,
+            file_path=filepath,
+            line=1,
+        ))
+
+        # 从解析结果中转换符号
+        for sym in parse_result.symbols:
+            symbols.append(SymbolRecord(
+                name=sym.name,
+                qualified_name=sym.qualified_name,
+                type=sym.type,
+                file_id=file_id,
+                file_path=filepath,
+                line=sym.line,
+                end_line=sym.end_line,
+                signature=sym.signature,
+                docstring=sym.docstring,
+            ))
+
+        # 从解析结果中转换边
+        for edge in parse_result.edges:
+            edges.append(EdgeRecord(
+                source_name=edge.source_name,
+                target_name=edge.target_name,
+                type=edge.type,
+                source_file=filepath,
+            ))
+
+        # 批量写入
+        self.storage.insert_symbols_batch(symbols)
+        self.storage.insert_edges_batch(edges)
+
+        self._indexed_count += 1
+        logger.debug(
+            f"已索引 [{language}]: {filepath} "
             f"(符号: {len(symbols)}, 边: {len(edges)})"
         )
 
@@ -754,6 +874,10 @@ __all__ = [
     "EdgeRecord",
     "get_storage",
     "reset_storage",
+    # 解析器
+    "HAS_TREE_SITTER",
+    "SUPPORTED_EXTENSIONS",
+    "detect_language",
     # 工具函数
     "code_graph_index_tool",
     "code_graph_search_tool",
